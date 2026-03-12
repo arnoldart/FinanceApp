@@ -1,6 +1,6 @@
 namespace FinanceApp.API.Models;
 
-public class Wallet
+public class Wallet : BaseEntity
 {
     public Guid Id { get; set; }
 

@@ -1,4 +1,5 @@
 using FinanceApp.API.Data;
+using FinanceApp.API.Services;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -9,6 +10,7 @@ builder.Logging.AddDebug();
 
 builder.Services.AddDbContext<FinanceDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddScoped<PasswordService>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
