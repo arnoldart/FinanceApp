@@ -81,4 +81,12 @@ public class AuthController : ControllerBase
             user.UpdatedAt
         });
     }
+
+    [HttpPost("refresh")]
+    public IActionResult Refresh(string RefreshToken)
+    {
+        return Ok("refresh berhasil");
+    }
+
+    // [HttpPost("logout")]
 }
