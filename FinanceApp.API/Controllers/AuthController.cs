@@ -9,13 +9,13 @@ namespace FinanceApp.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class UserController : ControllerBase
+public class AuthController : ControllerBase
 {
     private readonly FinanceDbContext _context;
     private readonly PasswordService _passwordService;
     private readonly JwtService _jwtService;
 
-    public UserController(FinanceDbContext context, PasswordService passwordService, JwtService jwtService)
+    public AuthController(FinanceDbContext context, PasswordService passwordService, JwtService jwtService)
     {
         _context = context;
         _passwordService = passwordService;
