@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using FinanceApp.API.Data;
 using FinanceApp.API.Models;
+using Microsoft.AspNetCore.Authorization;
 
 namespace FinanceApp.API.Controllers;
 

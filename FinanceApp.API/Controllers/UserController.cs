@@ -3,6 +3,7 @@ using FinanceApp.API.Data;
 using FinanceApp.API.DTOs.Auth;
 using FinanceApp.API.Models;
 using FinanceApp.API.Services;
+using Microsoft.AspNetCore.Authorization;
 
 namespace FinanceApp.API.Controllers;
 
@@ -12,13 +13,16 @@ public class UserController : ControllerBase
 {
     private readonly FinanceDbContext _context;
     private readonly PasswordService _passwordService;
+    private readonly JwtService _jwtService;
 
-    public UserController(FinanceDbContext context, PasswordService passwordService)
+    public UserController(FinanceDbContext context, PasswordService passwordService, JwtService jwtService)
     {
         _context = context;
         _passwordService = passwordService;
+        _jwtService = jwtService;
     }
 
+    [Authorize]
     [HttpGet]
     public IActionResult GetUsers()
     {
@@ -35,16 +39,19 @@ public class UserController : ControllerBase
             return Unauthorized();
         }
 
-        var passwordService = new PasswordService();
-
-        var isValid = passwordService.VerifyPassword(user.PasswordHash, dto.Password);
+        var isValid = _passwordService.VerifyPassword(user.PasswordHash, dto.Password);
 
         if(!isValid)
         {
             return Unauthorized();
         }
 
-        return Ok("Login Success");
+        var token = _jwtService.GenerateToken(user.Id, user.Email);
+
+        return Ok(new
+        {
+            token
+        });
     }
 
     [HttpPost("Register")]

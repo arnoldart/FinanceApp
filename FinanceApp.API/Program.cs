@@ -1,6 +1,9 @@
+using System.Text;
 using FinanceApp.API.Data;
 using FinanceApp.API.Services;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -11,6 +14,42 @@ builder.Logging.AddDebug();
 builder.Services.AddDbContext<FinanceDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddScoped<PasswordService>();
+builder.Services.AddScoped<JwtService>();
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+.AddJwtBearer(options =>
+{
+    var key = Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]);
+
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+
+        ValidIssuer = builder.Configuration["Jwt:Issuer"],
+        ValidAudience = builder.Configuration["Jwt:Audience"],
+
+        IssuerSigningKey = new SymmetricSecurityKey(key)
+    };
+
+    options.Events = new JwtBearerEvents
+    {
+        OnChallenge = async context =>
+        {
+            context.HandleResponse();
+            context.Response.StatusCode = 401;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"message\":\"Akses ditolak. Silakan login terlebih dahulu.\"}");
+        },
+        OnForbidden = async context =>
+        {
+            context.Response.StatusCode = 403;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"message\":\"Kamu tidak punya izin untuk mengakses resource ini.\"}");
+        }
+    };
+});
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -20,6 +59,8 @@ var app = builder.Build();
 
 app.UseSwagger();
 app.UseSwaggerUI();
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapGet("/", () => Results.Redirect("/swagger"));
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
