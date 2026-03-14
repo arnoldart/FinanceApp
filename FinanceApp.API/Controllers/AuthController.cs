@@ -11,6 +11,7 @@ namespace FinanceApp.API.Controllers;
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {
+    private const string RefreshTokenCookieName = "refreshToken";
     private readonly FinanceDbContext _context;
     private readonly PasswordService _passwordService;
     private readonly JwtService _jwtService;
@@ -46,11 +47,26 @@ public class AuthController : ControllerBase
             return Unauthorized();
         }
 
-        var token = _jwtService.GenerateToken(user.Id, user.Email);
+        var accessToken = _jwtService.GenerateToken(user.Id, user.Email);
+        var refreshToken = _jwtService.GenerateRefreshToken();
+
+        var token = new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            Token = refreshToken,
+            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        _context.RefreshTokens.Add(token);
+        _context.SaveChanges();
+
+        SetRefreshTokenCookie(refreshToken, token.ExpiresAt);
 
         return Ok(new
         {
-            token
+            accessToken
         });
     }
 
@@ -83,10 +99,83 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("refresh")]
-    public IActionResult Refresh(string RefreshToken)
+    public IActionResult Refresh()
     {
-        return Ok("refresh berhasil");
+        var refreshToken = Request.Cookies[RefreshTokenCookieName];
+
+        if (string.IsNullOrWhiteSpace(refreshToken))
+        {
+            return Unauthorized(new { message = "Refresh token tidak ditemukan." });
+        }
+
+        var token = _context.RefreshTokens.FirstOrDefault(t => t.Token == refreshToken);
+
+        if (token == null)
+        {
+            return Unauthorized(new { message = "Refresh token tidak valid." });
+        }
+
+        if (token.Revoked || token.ExpiresAt < DateTime.UtcNow)
+        {
+            return Unauthorized(new { message = "Refresh token sudah tidak berlaku." });
+        }
+
+        token.Revoked = true;
+
+        var newRefresh = _jwtService.GenerateRefreshToken();
+
+        var refreshEntity = new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = token.UserId,
+            DeviceId = token.DeviceId,
+            Token = newRefresh,
+            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.RefreshTokens.Add(refreshEntity);
+        _context.SaveChanges();
+    
+        var user = _context.Users.Find(token.UserId);
+        var accessToken = _jwtService.GenerateToken(user.Id, user.Email);
+
+        SetRefreshTokenCookie(newRefresh, refreshEntity.ExpiresAt);
+
+        return Ok(new
+        {
+            accessToken
+        });
     }
 
-    // [HttpPost("logout")]
+    [HttpPost("logout")]
+    public IActionResult Logout()
+    {
+        var refreshToken = Request.Cookies[RefreshTokenCookieName];
+
+        var token = _context.RefreshTokens.FirstOrDefault(t => t.Token == refreshToken);
+
+        if(token != null)
+        {
+            _context.RefreshTokens.Remove(token);
+            _context.SaveChanges();
+        }
+
+        Response.Cookies.Delete(RefreshTokenCookieName);
+
+        return Ok(new { message = "Logged out successfully." });
+    }
+
+    private void SetRefreshTokenCookie(string refreshToken, DateTime expiresAt)
+    {
+        var cookieOptions = new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.Strict,
+            Expires = new DateTimeOffset(expiresAt)
+        };
+
+        Response.Cookies.Append(RefreshTokenCookieName, refreshToken, cookieOptions);
+    }
 }
