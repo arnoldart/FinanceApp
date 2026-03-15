@@ -47,14 +47,15 @@ public class AuthController : ControllerBase
             return Unauthorized();
         }
 
-        var accessToken = _jwtService.GenerateToken(user.Id, user.Email);
+        var accessToken = _jwtService.GenerateToken(user.Id, user.Email, user.TokenVersion);
         var refreshToken = _jwtService.GenerateRefreshToken();
+        var refreshTokenHash = _jwtService.HashToken(refreshToken);
 
         var token = new RefreshToken
         {
             Id = Guid.NewGuid(),
             UserId = user.Id,
-            Token = refreshToken,
+            Token = refreshTokenHash,
             ExpiresAt = DateTime.UtcNow.AddDays(7),
             CreatedAt = DateTime.UtcNow,
         };
@@ -108,7 +109,8 @@ public class AuthController : ControllerBase
             return Unauthorized(new { message = "Refresh token tidak ditemukan." });
         }
 
-        var token = _context.RefreshTokens.FirstOrDefault(t => t.Token == refreshToken);
+        var refreshTokenHash = _jwtService.HashToken(refreshToken);
+        var token = _context.RefreshTokens.FirstOrDefault(t => t.Token == refreshTokenHash);
 
         if (token == null)
         {
@@ -117,19 +119,34 @@ public class AuthController : ControllerBase
 
         if (token.Revoked || token.ExpiresAt < DateTime.UtcNow)
         {
+            var compromisedUser = _context.Users.Find(token.UserId);
+            if (compromisedUser is not null)
+            {
+                compromisedUser.TokenVersion += 1;
+
+                var activeTokens = _context.RefreshTokens.Where(t => t.UserId == token.UserId && !t.Revoked);
+                foreach (var activeToken in activeTokens)
+                {
+                    activeToken.Revoked = true;
+                }
+
+                _context.SaveChanges();
+            }
+
             return Unauthorized(new { message = "Refresh token sudah tidak berlaku." });
         }
 
         token.Revoked = true;
 
         var newRefresh = _jwtService.GenerateRefreshToken();
+        var newRefreshHash = _jwtService.HashToken(newRefresh);
 
         var refreshEntity = new RefreshToken
         {
             Id = Guid.NewGuid(),
             UserId = token.UserId,
             DeviceId = token.DeviceId,
-            Token = newRefresh,
+            Token = newRefreshHash,
             ExpiresAt = DateTime.UtcNow.AddDays(7),
             CreatedAt = DateTime.UtcNow
         };
@@ -138,7 +155,12 @@ public class AuthController : ControllerBase
         _context.SaveChanges();
     
         var user = _context.Users.Find(token.UserId);
-        var accessToken = _jwtService.GenerateToken(user.Id, user.Email);
+        if (user is null)
+        {
+            return Unauthorized(new { message = "User tidak ditemukan." });
+        }
+
+        var accessToken = _jwtService.GenerateToken(user.Id, user.Email, user.TokenVersion);
 
         SetRefreshTokenCookie(newRefresh, refreshEntity.ExpiresAt);
 
@@ -152,12 +174,25 @@ public class AuthController : ControllerBase
     public IActionResult Logout()
     {
         var refreshToken = Request.Cookies[RefreshTokenCookieName];
+        if (string.IsNullOrWhiteSpace(refreshToken))
+        {
+            Response.Cookies.Delete(RefreshTokenCookieName);
+            return Ok(new { message = "Logged out successfully." });
+        }
 
-        var token = _context.RefreshTokens.FirstOrDefault(t => t.Token == refreshToken);
+        var refreshTokenHash = _jwtService.HashToken(refreshToken);
+        var token = _context.RefreshTokens.FirstOrDefault(t => t.Token == refreshTokenHash);
 
         if(token != null)
         {
-            _context.RefreshTokens.Remove(token);
+            token.Revoked = true;
+
+            var user = _context.Users.Find(token.UserId);
+            if (user is not null)
+            {
+                user.TokenVersion += 1;
+            }
+
             _context.SaveChanges();
         }
 

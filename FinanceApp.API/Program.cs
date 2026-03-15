@@ -1,3 +1,5 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using System.Text;
 using FinanceApp.API.Data;
 using FinanceApp.API.Services;
@@ -47,6 +49,25 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             context.Response.StatusCode = 403;
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsync("{\"message\":\"Kamu tidak punya izin untuk mengakses resource ini.\"}");
+        },
+        OnTokenValidated = async ctx =>
+        {
+            var db = ctx.HttpContext.RequestServices.GetRequiredService<FinanceDbContext>();
+            var sub = ctx.Principal?.FindFirstValue(JwtRegisteredClaimNames.Sub)
+                ?? ctx.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+            var tvClaim = ctx.Principal?.FindFirstValue("tv");
+
+            if(!Guid.TryParse(sub, out var userId) || !int.TryParse(tvClaim, out var tv))
+            {
+                ctx.Fail("Invalid token claims");
+                return;
+            }
+
+            var user = await db.Users.FindAsync(userId);
+            if(user is null || user.TokenVersion != tv)
+            {
+                ctx.Fail("Token revoked");
+            }
         }
     };
 });
@@ -59,6 +80,7 @@ var app = builder.Build();
 
 app.UseSwagger();
 app.UseSwaggerUI();
+app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 

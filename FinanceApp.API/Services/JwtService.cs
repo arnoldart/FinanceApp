@@ -15,12 +15,15 @@ public class JwtService
         _config = config;
     }
 
-    public string GenerateToken(Guid userId, string email)
+    public string GenerateToken(Guid userId, string email, int tokenVersion)
     {
+        var now = DateTime.UtcNow;
         var claims = new[]
         {
             new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()),
-            new Claim(JwtRegisteredClaimNames.Email, email)
+            new Claim(JwtRegisteredClaimNames.Email, email),
+            new Claim("tv", tokenVersion.ToString()),
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
 
         var key = new SymmetricSecurityKey(
@@ -36,8 +39,9 @@ public class JwtService
             issuer: _config["Jwt:Issuer"],
             audience: _config["Jwt:Audience"],
             claims: claims,
-            expires: DateTime.Now.AddMinutes(
-                Convert.ToDouble(_config["Jwt:ExpireMinutes"])
+            notBefore: now,
+            expires: now.AddMinutes(
+                Convert.ToDouble(_config["Jwt:ExpireMinutes"] ?? "10")
             ),
             signingCredentials: creds
         );
@@ -53,5 +57,12 @@ public class JwtService
         rng.GetBytes(randomBytes);
 
         return Convert.ToBase64String(randomBytes);
+    }
+
+    public string HashToken(string token)
+    {
+        using var sha = SHA256.Create();
+        var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(token));
+        return Convert.ToHexString(bytes);
     }
 }
