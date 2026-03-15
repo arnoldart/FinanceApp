@@ -4,6 +4,8 @@ using FinanceApp.API.DTOs.Auth;
 using FinanceApp.API.Models;
 using FinanceApp.API.Services;
 using Microsoft.AspNetCore.Authorization;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 
 namespace FinanceApp.API.Controllers;
 
@@ -28,6 +30,39 @@ public class AuthController : ControllerBase
     public IActionResult GetUsers()
     {
         return Ok(_context.Users.ToList());
+    }
+
+    [Authorize]
+    [HttpGet("me")]
+    public IActionResult Me()
+    {
+        var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub)
+            ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
+        
+        if (!Guid.TryParse(sub, out var userId))
+        {
+            return Unauthorized(new { message = "Token tidak valid." });
+        }
+
+        var user = _context.Users.FirstOrDefault(u => u.Id == userId);
+
+        // Console.WriteLine("INIIII LOGGGG=========================");
+        // Console.WriteLine(userId);
+        // Console.WriteLine("INIIII LOGGGG=========================");
+
+        if (user is null)
+        {
+            return NotFound(new { message = "User tidak ditemukan." });
+        }
+
+        return Ok(new
+        {
+            user.Id,
+            user.Name,
+            user.Email,
+            user.CreatedAt,
+            user.UpdatedAt
+        });
     }
 
     [HttpPost("Login")]
@@ -99,6 +134,7 @@ public class AuthController : ControllerBase
         });
     }
 
+    [Authorize]
     [HttpPost("refresh")]
     public IActionResult Refresh()
     {
@@ -170,6 +206,7 @@ public class AuthController : ControllerBase
         });
     }
 
+    [Authorize]
     [HttpPost("logout")]
     public IActionResult Logout()
     {
