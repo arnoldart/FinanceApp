@@ -4,6 +4,7 @@ using FinanceApp.API.DTOs.Auth;
 using FinanceApp.API.Models;
 using FinanceApp.API.Services;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 
@@ -17,12 +18,18 @@ public class AuthController : ControllerBase
     private readonly FinanceDbContext _context;
     private readonly PasswordService _passwordService;
     private readonly JwtService _jwtService;
+    private readonly ILogger<AuthController> _logger;
 
-    public AuthController(FinanceDbContext context, PasswordService passwordService, JwtService jwtService)
+    public AuthController(
+        FinanceDbContext context,
+        PasswordService passwordService,
+        JwtService jwtService,
+        ILogger<AuthController> logger)
     {
         _context = context;
         _passwordService = passwordService;
         _jwtService = jwtService;
+        _logger = logger;
     }
 
     [Authorize]
@@ -34,6 +41,7 @@ public class AuthController : ControllerBase
 
     [Authorize]
     [HttpGet("me")]
+    [EnableRateLimiting("fixed")]
     public IActionResult Me()
     {
         var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub)
@@ -66,20 +74,34 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("Login")]
+    [EnableRateLimiting("fixed")]
     public IActionResult Login([FromBody] LoginDto dto)
     {
         var user = _context.Users.FirstOrDefault(x => x.Email == dto.Email);
 
         if(user == null)
         {
-            return Unauthorized();
+            _logger.LogWarning(
+                "auth.login.failed user_not_found email={Email} ip={Ip} ua={UserAgent}",
+                dto.Email,
+                GetRemoteIp(),
+                GetUserAgent());
+
+            return Error(StatusCodes.Status401Unauthorized, "Email atau password salah.");
         }
 
         var isValid = _passwordService.VerifyPassword(user.PasswordHash, dto.Password);
 
         if(!isValid)
         {
-            return Unauthorized();
+            _logger.LogWarning(
+                "auth.login.failed invalid_password userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
+                user.Id,
+                user.Email,
+                GetRemoteIp(),
+                GetUserAgent());
+
+            return Error(StatusCodes.Status401Unauthorized, "Email atau password salah.");
         }
 
         var accessToken = _jwtService.GenerateToken(user.Id, user.Email, user.TokenVersion);
@@ -100,13 +122,21 @@ public class AuthController : ControllerBase
 
         SetRefreshTokenCookie(refreshToken, token.ExpiresAt);
 
-        return Ok(new
+        _logger.LogInformation(
+            "auth.login.success userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
+            user.Id,
+            user.Email,
+            GetRemoteIp(),
+            GetUserAgent());
+
+        return Success("Login berhasil.", new
         {
             accessToken
         });
     }
 
     [HttpPost("Register")]
+    [EnableRateLimiting("fixed")]
     public IActionResult Register([FromBody] RegisterDto dto)
     {
         if (_context.Users.Any(u => u.Email == dto.Email))
@@ -134,15 +164,20 @@ public class AuthController : ControllerBase
         });
     }
 
-    [Authorize]
     [HttpPost("refresh")]
+    [EnableRateLimiting("fixed")]
     public IActionResult Refresh()
     {
         var refreshToken = Request.Cookies[RefreshTokenCookieName];
 
         if (string.IsNullOrWhiteSpace(refreshToken))
         {
-            return Unauthorized(new { message = "Refresh token tidak ditemukan." });
+            _logger.LogWarning(
+                "auth.refresh.failed token_missing ip={Ip} ua={UserAgent}",
+                GetRemoteIp(),
+                GetUserAgent());
+
+            return Error(StatusCodes.Status401Unauthorized, "Refresh token tidak ditemukan.");
         }
 
         var refreshTokenHash = _jwtService.HashToken(refreshToken);
@@ -150,7 +185,12 @@ public class AuthController : ControllerBase
 
         if (token == null)
         {
-            return Unauthorized(new { message = "Refresh token tidak valid." });
+            _logger.LogWarning(
+                "auth.refresh.failed token_invalid ip={Ip} ua={UserAgent}",
+                GetRemoteIp(),
+                GetUserAgent());
+
+            return Error(StatusCodes.Status401Unauthorized, "Refresh token tidak valid.");
         }
 
         if (token.Revoked || token.ExpiresAt < DateTime.UtcNow)
@@ -167,9 +207,15 @@ public class AuthController : ControllerBase
                 }
 
                 _context.SaveChanges();
+
+                _logger.LogWarning(
+                    "auth.refresh.reuse_detected userId={UserId} revokedAll=true ip={Ip} ua={UserAgent}",
+                    compromisedUser.Id,
+                    GetRemoteIp(),
+                    GetUserAgent());
             }
 
-            return Unauthorized(new { message = "Refresh token sudah tidak berlaku." });
+            return Error(StatusCodes.Status401Unauthorized, "Refresh token sudah tidak berlaku.");
         }
 
         token.Revoked = true;
@@ -193,28 +239,46 @@ public class AuthController : ControllerBase
         var user = _context.Users.Find(token.UserId);
         if (user is null)
         {
-            return Unauthorized(new { message = "User tidak ditemukan." });
+            _logger.LogWarning(
+                "auth.refresh.failed user_not_found userId={UserId} ip={Ip} ua={UserAgent}",
+                token.UserId,
+                GetRemoteIp(),
+                GetUserAgent());
+
+            return Error(StatusCodes.Status401Unauthorized, "User tidak ditemukan.");
         }
 
         var accessToken = _jwtService.GenerateToken(user.Id, user.Email, user.TokenVersion);
 
         SetRefreshTokenCookie(newRefresh, refreshEntity.ExpiresAt);
 
-        return Ok(new
+        _logger.LogInformation(
+            "auth.refresh.success userId={UserId} ip={Ip} ua={UserAgent}",
+            user.Id,
+            GetRemoteIp(),
+            GetUserAgent());
+
+        return Success("Token berhasil diperbarui.", new
         {
             accessToken
         });
     }
 
-    [Authorize]
     [HttpPost("logout")]
+    [EnableRateLimiting("fixed")]
     public IActionResult Logout()
     {
         var refreshToken = Request.Cookies[RefreshTokenCookieName];
         if (string.IsNullOrWhiteSpace(refreshToken))
         {
             Response.Cookies.Delete(RefreshTokenCookieName);
-            return Ok(new { message = "Logged out successfully." });
+
+            _logger.LogInformation(
+                "auth.logout.success no_token_cookie ip={Ip} ua={UserAgent}",
+                GetRemoteIp(),
+                GetUserAgent());
+
+            return Success("Logout berhasil.");
         }
 
         var refreshTokenHash = _jwtService.HashToken(refreshToken);
@@ -231,11 +295,24 @@ public class AuthController : ControllerBase
             }
 
             _context.SaveChanges();
+
+            _logger.LogInformation(
+                "auth.logout.success userId={UserId} tokenRevoked=true ip={Ip} ua={UserAgent}",
+                token.UserId,
+                GetRemoteIp(),
+                GetUserAgent());
+        }
+        else
+        {
+            _logger.LogWarning(
+                "auth.logout.token_not_found ip={Ip} ua={UserAgent}",
+                GetRemoteIp(),
+                GetUserAgent());
         }
 
         Response.Cookies.Delete(RefreshTokenCookieName);
 
-        return Ok(new { message = "Logged out successfully." });
+        return Success("Logout berhasil.");
     }
 
     private void SetRefreshTokenCookie(string refreshToken, DateTime expiresAt)
@@ -249,5 +326,34 @@ public class AuthController : ControllerBase
         };
 
         Response.Cookies.Append(RefreshTokenCookieName, refreshToken, cookieOptions);
+    }
+
+    private IActionResult Success(string message, object? data = null)
+    {
+        return Ok(new
+        {
+            success = true,
+            message,
+            data
+        });
+    }
+
+    private IActionResult Error(int statusCode, string message)
+    {
+        return StatusCode(statusCode, new
+        {
+            success = false,
+            message
+        });
+    }
+
+    private string GetRemoteIp()
+    {
+        return HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    }
+
+    private string GetUserAgent()
+    {
+        return Request.Headers.UserAgent.ToString();
     }
 }
