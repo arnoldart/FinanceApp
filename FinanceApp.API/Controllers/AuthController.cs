@@ -9,6 +9,7 @@ using System.Net;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using Microsoft.AspNetCore.Identity.Data;
 
 namespace FinanceApp.API.Controllers;
 
@@ -298,6 +299,20 @@ public class AuthController : ControllerBase
             GetRemoteIp(),
             GetUserAgent());
 
+        return Success("Email berhasil diverifikasi.");
+    }
+
+    [HttpPost("forgot-password")]
+    [EnableRateLimiting("fixed")]
+    public IActionResult ForgotPassword([FromBody] ForgotPasswordDto dto)
+    {
+        return Success("Email berhasil diverifikasi.");
+    }
+
+    [HttpPost("reset-password")]
+    [EnableRateLimiting("fixed")]
+    public IActionResult ResetPassword()
+    {
         return Success("Email berhasil diverifikasi.");
     }
 
