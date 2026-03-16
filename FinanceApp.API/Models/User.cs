@@ -21,5 +21,9 @@ namespace FinanceApp.API.Models
         public string? EmailVerificationToken { get; set; }
 
         public DateTime? EmailVerificationExpiresAt { get; set; }
+        public string? PasswordResetToken { get; set; }
+        public DateTime? PasswordResetExpiresAt { get; set; }
+        public DateTime? PasswordResetRequestedAt { get; set; }
+
     }
 }

@@ -304,16 +304,95 @@ public class AuthController : ControllerBase
 
     [HttpPost("forgot-password")]
     [EnableRateLimiting("fixed")]
-    public IActionResult ForgotPassword([FromBody] ForgotPasswordDto dto)
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordDto dto)
     {
-        return Success("Email berhasil diverifikasi.");
+        var user = _context.Users.FirstOrDefault(u => u.Email == dto.Email);
+
+        if(user is null)
+        {
+            _logger.LogWarning(
+                "auth.verify_email.failed user_not_found email={Email} ip={Ip} ua={UserAgent}",
+                dto.Email,
+                GetRemoteIp(),
+                GetUserAgent());
+
+            return Error(StatusCodes.Status404NotFound, "User tidak ditemukan.");
+        }
+
+        var rawToken = Guid.NewGuid().ToString("N");
+        var hashedToken = _jwtService.HashToken(rawToken);
+        var expiresAt = DateTime.UtcNow.AddMinutes(30);
+
+        user.PasswordResetToken = hashedToken;
+        user.PasswordResetExpiresAt = expiresAt;
+        user.PasswordResetRequestedAt = DateTime.UtcNow;
+
+        _context.SaveChanges();
+
+        var resetPageBaseUrl = _config["App:ResetPasswordUrl"] ?? "http://localhost:3000/reset-password";
+        var resetPageUrl =
+            $"{resetPageBaseUrl}?email={WebUtility.UrlEncode(user.Email)}&token={WebUtility.UrlEncode(rawToken)}";
+
+        var subject = "Reset Password FinanceApp";
+        var body = $@"
+    <div style='font-family:Arial,sans-serif;line-height:1.5;color:#111'>
+    <h2>Reset Password</h2>
+    <p>Halo {WebUtility.HtmlEncode(user.Name)},</p>
+    <p>Klik tombol berikut untuk reset password kamu:</p>
+    <p>
+        <a href='{WebUtility.HtmlEncode(resetPageUrl)}'
+        style='display:inline-block;padding:10px 16px;background:#0b5fff;color:#fff;text-decoration:none;border-radius:6px'>
+        Reset Password
+        </a>
+    </p>
+    <p>Link ini berlaku 30 menit.</p>
+    </div>";
+
+        await _emailService.SendEmailAsync(user.Email, subject, body, isHtml: true);
+
+        return Success("Jika email terdaftar, link reset password akan dikirim.");
     }
 
     [HttpPost("reset-password")]
     [EnableRateLimiting("fixed")]
-    public IActionResult ResetPassword()
+    public IActionResult ResetPassword([FromBody] ResetPasswordDto dto)
     {
-        return Success("Email berhasil diverifikasi.");
+        var user = _context.Users.FirstOrDefault(u => u.Email == dto.Email);
+
+        if(user is null)
+        {
+            _logger.LogWarning(
+                "auth.verify_email.failed user_not_found email={Email} ip={Ip} ua={UserAgent}",
+                dto.Email,
+                GetRemoteIp(),
+                GetUserAgent());
+
+            return Error(StatusCodes.Status404NotFound, "User tidak ditemukan.");
+        }
+
+        if(string.IsNullOrWhiteSpace(user.PasswordResetToken) || user.PasswordResetExpiresAt < DateTime.UtcNow)
+        {
+            return Error(StatusCodes.Status400BadRequest, "Token reset password sudah kedaluwarsa.");
+        }
+
+        var hashedToken = _jwtService.HashToken(dto.Token);
+        
+        if(!string.Equals(hashedToken, user.PasswordResetToken, StringComparison.Ordinal))
+        {
+            return Error(StatusCodes.Status400BadRequest, "Token reset password tidak valid.");
+        }
+
+        user.PasswordHash = _passwordService.HashPassword(dto.NewPassword);
+        user.PasswordResetToken = null;
+        user.PasswordResetExpiresAt = null;
+        user.PasswordResetRequestedAt = null;
+        user.TokenVersion += 1;
+
+        _context.SaveChanges();
+
+        Response.Cookies.Delete("refreshToken");
+
+        return Success("Password berhasil direset. Silakan login kembali.");
     }
 
     [HttpPost("refresh")]
