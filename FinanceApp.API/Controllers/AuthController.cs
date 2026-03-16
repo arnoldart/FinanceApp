@@ -5,8 +5,10 @@ using FinanceApp.API.Models;
 using FinanceApp.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
+using System.Net;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 
 namespace FinanceApp.API.Controllers;
 
@@ -18,17 +20,23 @@ public class AuthController : ControllerBase
     private readonly FinanceDbContext _context;
     private readonly PasswordService _passwordService;
     private readonly JwtService _jwtService;
+    private readonly EmailService _emailService;
+    private readonly IConfiguration _config;
     private readonly ILogger<AuthController> _logger;
 
     public AuthController(
         FinanceDbContext context,
         PasswordService passwordService,
+        EmailService emailService,
         JwtService jwtService,
+        IConfiguration config,
         ILogger<AuthController> logger)
     {
         _context = context;
         _passwordService = passwordService;
+        _emailService = emailService;
         _jwtService = jwtService;
+        _config = config;
         _logger = logger;
     }
 
@@ -53,10 +61,6 @@ public class AuthController : ControllerBase
         }
 
         var user = _context.Users.FirstOrDefault(u => u.Id == userId);
-
-        // Console.WriteLine("INIIII LOGGGG=========================");
-        // Console.WriteLine(userId);
-        // Console.WriteLine("INIIII LOGGGG=========================");
 
         if (user is null)
         {
@@ -104,6 +108,18 @@ public class AuthController : ControllerBase
             return Error(StatusCodes.Status401Unauthorized, "Email atau password salah.");
         }
 
+        if (!user.IsEmailVerified)
+        {
+            _logger.LogWarning(
+                "auth.login.failed email_not_verified userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
+                user.Id,
+                user.Email,
+                GetRemoteIp(),
+                GetUserAgent());
+
+            return Error(StatusCodes.Status403Forbidden, "Email belum diverifikasi. Silakan cek inbox email kamu.");
+        }
+
         var accessToken = _jwtService.GenerateToken(user.Id, user.Email, user.TokenVersion);
         var refreshToken = _jwtService.GenerateRefreshToken();
         var refreshTokenHash = _jwtService.HashToken(refreshToken);
@@ -137,31 +153,152 @@ public class AuthController : ControllerBase
 
     [HttpPost("Register")]
     [EnableRateLimiting("fixed")]
-    public IActionResult Register([FromBody] RegisterDto dto)
+    public async Task<IActionResult> Register([FromBody] RegisterDto dto)
     {
         if (_context.Users.Any(u => u.Email == dto.Email))
         {
             return Conflict(new { message = "Email already exists." });
         }
 
+        var verifyCode = GenerateVerificationCode();
+        var verifyToken = Guid.NewGuid().ToString("N");
+        var verifyExpiry = DateTime.UtcNow.AddMinutes(30);
+
         var user = new User
         {
             Name = dto.Name,
             Email = dto.Email,
-            PasswordHash = _passwordService.HashPassword(dto.Password)
+            PasswordHash = _passwordService.HashPassword(dto.Password),
+            EmailVerificationCode = verifyCode,
+            EmailVerificationToken = verifyToken,
+            EmailVerificationExpiresAt = verifyExpiry,
+            IsEmailVerified = false
         };
 
         _context.Users.Add(user);
         _context.SaveChanges();
 
-        return CreatedAtAction(nameof(GetUsers), new { id = user.Id }, new
+        var verifyPageBaseUrl = _config["App:VerifyEmailUrl"] ?? "http://localhost:3000/email-verify";
+        var verifyPageUrl =
+            $"{verifyPageBaseUrl}?email={WebUtility.UrlEncode(user.Email)}&token={WebUtility.UrlEncode(verifyToken)}";
+
+        var subject = "Verifikasi Email FinanceApp";
+        var body = BuildVerificationEmailHtml(user.Name, verifyCode, verifyPageUrl);
+
+        try
         {
-            user.Id,
-            user.Name,
-            user.Email,
-            user.CreatedAt,
-            user.UpdatedAt
+            await _emailService.SendEmailAsync(user.Email, subject, body, isHtml: true);
+
+            _logger.LogInformation(
+                "auth.register.verification_sent userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
+                user.Id,
+                user.Email,
+                GetRemoteIp(),
+                GetUserAgent());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "auth.register.verification_send_failed userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
+                user.Id,
+                user.Email,
+                GetRemoteIp(),
+                GetUserAgent());
+
+            return Error(StatusCodes.Status500InternalServerError, "Registrasi berhasil, tapi gagal kirim email verifikasi.");
+        }
+
+        return StatusCode(StatusCodes.Status201Created, new
+        {
+            success = true,
+            message = "Registrasi berhasil. Cek email untuk verifikasi akun.",
+            data = new
+            {
+                user.Id,
+                user.Name,
+                user.Email,
+                user.CreatedAt,
+                user.UpdatedAt
+            }
         });
+    }
+
+    [HttpPost("verify-email")]
+    [EnableRateLimiting("fixed")]
+    public IActionResult VerifyEmail([FromBody] VerifyEmailDto dto)
+    {
+        var user = _context.Users.FirstOrDefault(u => u.Email == dto.Email);
+
+        if (user is null)
+        {
+            _logger.LogWarning(
+                "auth.verify_email.failed user_not_found email={Email} ip={Ip} ua={UserAgent}",
+                dto.Email,
+                GetRemoteIp(),
+                GetUserAgent());
+
+            return Error(StatusCodes.Status404NotFound, "User tidak ditemukan.");
+        }
+
+        if (user.IsEmailVerified)
+        {
+            return Success("Email sudah terverifikasi.");
+        }
+
+        if (user.EmailVerificationExpiresAt is null || user.EmailVerificationExpiresAt < DateTime.UtcNow)
+        {
+            _logger.LogWarning(
+                "auth.verify_email.failed expired userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
+                user.Id,
+                user.Email,
+                GetRemoteIp(),
+                GetUserAgent());
+
+            return Error(StatusCodes.Status400BadRequest, "Kode verifikasi sudah kedaluwarsa.");
+        }
+
+        var codeProvided = !string.IsNullOrWhiteSpace(dto.Code);
+        var tokenProvided = !string.IsNullOrWhiteSpace(dto.Token);
+
+        if (!codeProvided && !tokenProvided)
+        {
+            return Error(StatusCodes.Status400BadRequest, "Code atau token verifikasi harus dikirim.");
+        }
+
+        var isCodeValid = codeProvided &&
+            string.Equals(user.EmailVerificationCode, dto.Code, StringComparison.Ordinal);
+        var isTokenValid = tokenProvided &&
+            string.Equals(user.EmailVerificationToken, dto.Token, StringComparison.Ordinal);
+
+        if (!isCodeValid && !isTokenValid)
+        {
+            _logger.LogWarning(
+                "auth.verify_email.failed invalid_code_or_token userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
+                user.Id,
+                user.Email,
+                GetRemoteIp(),
+                GetUserAgent());
+
+            return Error(StatusCodes.Status400BadRequest, "Code atau token verifikasi tidak valid.");
+        }
+
+        user.IsEmailVerified = true;
+        user.EmailVerifiedAt = DateTime.UtcNow;
+        user.EmailVerificationCode = null;
+        user.EmailVerificationToken = null;
+        user.EmailVerificationExpiresAt = null;
+
+        _context.SaveChanges();
+
+        _logger.LogInformation(
+            "auth.verify_email.success userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
+            user.Id,
+            user.Email,
+            GetRemoteIp(),
+            GetUserAgent());
+
+        return Success("Email berhasil diverifikasi.");
     }
 
     [HttpPost("refresh")]
@@ -355,5 +492,29 @@ public class AuthController : ControllerBase
     private string GetUserAgent()
     {
         return Request.Headers.UserAgent.ToString();
+    }
+
+    private static string GenerateVerificationCode()
+    {
+        return RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
+    }
+
+    private static string BuildVerificationEmailHtml(string name, string code, string verifyPageUrl)
+    {
+        return $@"
+<div style='font-family:Arial,sans-serif;line-height:1.5;color:#111'>
+  <h2>Verifikasi Email Kamu</h2>
+  <p>Halo {WebUtility.HtmlEncode(name)}, terima kasih sudah daftar di FinanceApp.</p>
+  <p>Kode verifikasi kamu:</p>
+  <p style='font-size:24px;font-weight:bold;letter-spacing:2px'>{WebUtility.HtmlEncode(code)}</p>
+  <p>Atau klik tombol berikut untuk langsung menuju halaman verifikasi:</p>
+  <p>
+    <a href='{WebUtility.HtmlEncode(verifyPageUrl)}'
+       style='display:inline-block;padding:10px 16px;background:#0b5fff;color:#fff;text-decoration:none;border-radius:6px'>
+       Verifikasi Email
+    </a>
+  </p>
+  <p>Kode ini berlaku 30 menit.</p>
+</div>";
     }
 }

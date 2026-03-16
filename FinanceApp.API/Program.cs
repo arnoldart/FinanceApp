@@ -51,6 +51,7 @@ var defaultConnection = builder.Configuration.GetConnectionString("DefaultConnec
 builder.Services.AddDbContext<FinanceDbContext>(options =>
     options.UseNpgsql(defaultConnection));
 builder.Services.AddScoped<PasswordService>();
+builder.Services.AddScoped<EmailService>();
 builder.Services.AddScoped<JwtService>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 .AddJwtBearer(options =>
