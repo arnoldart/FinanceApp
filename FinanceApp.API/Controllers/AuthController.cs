@@ -6,7 +6,6 @@ using FinanceApp.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Net;
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Identity.Data;
@@ -18,12 +17,17 @@ namespace FinanceApp.API.Controllers;
 public class AuthController : ControllerBase
 {
     private const string RefreshTokenCookieName = "refreshToken";
+    private const string JwtSubjectClaim = "sub";
     private readonly FinanceDbContext _context;
     private readonly PasswordService _passwordService;
     private readonly JwtService _jwtService;
     private readonly EmailService _emailService;
     private readonly IConfiguration _config;
     private readonly ILogger<AuthController> _logger;
+    private readonly AbuseProtectionService _abuseProtectionService;
+    private static readonly TimeSpan FailedLoginWindow = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan LoginLockoutDuration = TimeSpan.FromMinutes(15);
+    private const int MaxFailedLoginAttempts = 5;
 
     public AuthController(
         FinanceDbContext context,
@@ -31,7 +35,8 @@ public class AuthController : ControllerBase
         EmailService emailService,
         JwtService jwtService,
         IConfiguration config,
-        ILogger<AuthController> logger)
+        ILogger<AuthController> logger,
+        AbuseProtectionService abuseProtectionService)
     {
         _context = context;
         _passwordService = passwordService;
@@ -39,10 +44,12 @@ public class AuthController : ControllerBase
         _jwtService = jwtService;
         _config = config;
         _logger = logger;
+        _abuseProtectionService = abuseProtectionService;
     }
 
     [Authorize]
     [HttpGet]
+    [EnableRateLimiting("auth-user")]
     public IActionResult GetUsers()
     {
         return Ok(_context.Users.ToList());
@@ -50,10 +57,10 @@ public class AuthController : ControllerBase
 
     [Authorize]
     [HttpGet("me")]
-    [EnableRateLimiting("fixed")]
+    [EnableRateLimiting("auth-user")]
     public IActionResult Me()
     {
-        var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub)
+        var sub = User.FindFirstValue(JwtSubjectClaim)
             ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
 
         if (!Guid.TryParse(sub, out var userId))
@@ -79,9 +86,17 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("Login")]
-    [EnableRateLimiting("fixed")]
-    public IActionResult Login([FromBody] LoginDto dto)
+    [EnableRateLimiting("auth-anon")]
+    public async Task<IActionResult> Login([FromBody] LoginDto dto)
     {
+        var remoteIp = GetRemoteIp();
+        var rateLimitDecision = await _abuseProtectionService.CheckLoginAsync(remoteIp, dto.Email, HttpContext.RequestAborted);
+        if (!rateLimitDecision.Allowed)
+        {
+            SetRetryAfterHeader(rateLimitDecision.RetryAfter);
+            return Error(StatusCodes.Status429TooManyRequests, rateLimitDecision.Message ?? "Terlalu banyak request. Coba lagi sebentar.");
+        }
+
         var user = _context.Users.FirstOrDefault(x => x.Email == dto.Email);
 
         if (user == null)
@@ -89,25 +104,52 @@ public class AuthController : ControllerBase
             _logger.LogWarning(
                 "auth.login.failed user_not_found email={Email} ip={Ip} ua={UserAgent}",
                 dto.Email,
-                GetRemoteIp(),
+                remoteIp,
                 GetUserAgent());
 
             return Error(StatusCodes.Status401Unauthorized, "Email atau password salah.");
+        }
+
+        if (user.LockoutEndAt.HasValue && user.LockoutEndAt.Value > DateTime.UtcNow)
+        {
+            _logger.LogWarning(
+                "auth.login.blocked account_locked userId={UserId} email={Email} lockoutEndAt={LockoutEndAt} ip={Ip} ua={UserAgent}",
+                user.Id,
+                user.Email,
+                user.LockoutEndAt.Value,
+                remoteIp,
+                GetUserAgent());
+
+            SetRetryAfterHeader(user.LockoutEndAt.Value - DateTime.UtcNow);
+            return Error(StatusCodes.Status423Locked, "Akun dikunci sementara karena terlalu banyak percobaan login gagal. Coba lagi sebentar.");
         }
 
         var isValid = _passwordService.VerifyPassword(user.PasswordHash, dto.Password);
 
         if (!isValid)
         {
+            var isLocked = await RegisterFailedLoginAttemptAsync(user, remoteIp);
+
             _logger.LogWarning(
-                "auth.login.failed invalid_password userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
+                "auth.login.failed invalid_password userId={UserId} email={Email} failedAttempts={FailedAttempts} lockoutEndAt={LockoutEndAt} ip={Ip} ua={UserAgent}",
                 user.Id,
                 user.Email,
-                GetRemoteIp(),
+                user.FailedLoginAttempts,
+                user.LockoutEndAt,
+                remoteIp,
                 GetUserAgent());
+
+            if (isLocked)
+            {
+                SetRetryAfterHeader(user.LockoutEndAt - DateTime.UtcNow);
+                return Error(StatusCodes.Status423Locked, "Terlalu banyak percobaan login gagal. Akun dikunci sementara.");
+            }
 
             return Error(StatusCodes.Status401Unauthorized, "Email atau password salah.");
         }
+
+        ResetFailedLoginState(user);
+        await _context.SaveChangesAsync(HttpContext.RequestAborted);
 
         if (!user.IsEmailVerified)
         {
@@ -115,7 +157,7 @@ public class AuthController : ControllerBase
                 "auth.login.failed email_not_verified userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
                 user.Id,
                 user.Email,
-                GetRemoteIp(),
+                remoteIp,
                 GetUserAgent());
 
             return Error(StatusCodes.Status403Forbidden, "Email belum diverifikasi. Silakan cek inbox email kamu.");
@@ -143,7 +185,7 @@ public class AuthController : ControllerBase
             "auth.login.success userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
             user.Id,
             user.Email,
-            GetRemoteIp(),
+            remoteIp,
             GetUserAgent());
 
         return Success("Login berhasil.", new
@@ -153,7 +195,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("Register")]
-    [EnableRateLimiting("fixed")]
+    [EnableRateLimiting("auth-anon")]
     public async Task<IActionResult> Register([FromBody] RegisterDto dto)
     {
         if (_context.Users.Any(u => u.Email == dto.Email))
@@ -226,7 +268,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("verify-email")]
-    [EnableRateLimiting("fixed")]
+    [EnableRateLimiting("auth-anon")]
     public IActionResult VerifyEmail([FromBody] VerifyEmailDto dto)
     {
         var user = _context.Users.FirstOrDefault(u => u.Email == dto.Email);
@@ -303,9 +345,17 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("forgot-password")]
-    [EnableRateLimiting("fixed")]
+    [EnableRateLimiting("auth-anon")]
     public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordDto dto)
     {
+        var remoteIp = GetRemoteIp();
+        var rateLimitDecision = await _abuseProtectionService.CheckForgotPasswordAsync(remoteIp, dto.Email, HttpContext.RequestAborted);
+        if (!rateLimitDecision.Allowed)
+        {
+            SetRetryAfterHeader(rateLimitDecision.RetryAfter);
+            return Error(StatusCodes.Status429TooManyRequests, rateLimitDecision.Message ?? "Terlalu banyak request. Coba lagi sebentar.");
+        }
+
         var user = _context.Users.FirstOrDefault(u => u.Email == dto.Email);
 
         if (user is null)
@@ -313,7 +363,7 @@ public class AuthController : ControllerBase
             _logger.LogWarning(
                 "auth.forgot_password.requested_for_unknown_email email={Email} ip={Ip} ua={UserAgent}",
                 dto.Email,
-                GetRemoteIp(),
+                remoteIp,
                 GetUserAgent());
 
             return Success("Jika email terdaftar, link reset password akan dikirim.");
@@ -356,7 +406,7 @@ public class AuthController : ControllerBase
                 "auth.forgot_password.email_sent userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
                 user.Id,
                 user.Email,
-                GetRemoteIp(),
+                remoteIp,
                 GetUserAgent());
         }
         catch (Exception ex)
@@ -366,7 +416,7 @@ public class AuthController : ControllerBase
                 "auth.forgot_password.email_send_failed userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
                 user.Id,
                 user.Email,
-                GetRemoteIp(),
+                remoteIp,
                 GetUserAgent());
 
             return Error(StatusCodes.Status500InternalServerError, "Gagal mengirim email reset password.");
@@ -376,7 +426,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("reset-password")]
-    [EnableRateLimiting("fixed")]
+    [EnableRateLimiting("auth-anon")]
     public IActionResult ResetPassword([FromBody] ResetPasswordDto dto)
     {
         var user = _context.Users.FirstOrDefault(u => u.Email == dto.Email);
@@ -453,7 +503,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("refresh")]
-    [EnableRateLimiting("fixed")]
+    [EnableRateLimiting("auth-refresh")]
     public IActionResult Refresh()
     {
         var refreshToken = Request.Cookies[RefreshTokenCookieName];
@@ -553,7 +603,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("logout")]
-    [EnableRateLimiting("fixed")]
+    [EnableRateLimiting("auth-refresh")]
     public IActionResult Logout()
     {
         var refreshToken = Request.Cookies[RefreshTokenCookieName];
@@ -643,6 +693,45 @@ public class AuthController : ControllerBase
     private string GetUserAgent()
     {
         return Request.Headers.UserAgent.ToString();
+    }
+
+    private async Task<bool> RegisterFailedLoginAttemptAsync(User user, string remoteIp)
+    {
+        var now = DateTime.UtcNow;
+        if (!user.LastFailedLoginAt.HasValue || now - user.LastFailedLoginAt.Value > FailedLoginWindow)
+        {
+            user.FailedLoginAttempts = 0;
+        }
+
+        user.FailedLoginAttempts += 1;
+        user.LastFailedLoginAt = now;
+
+        if (user.FailedLoginAttempts >= MaxFailedLoginAttempts)
+        {
+            user.LockoutEndAt = now.Add(LoginLockoutDuration);
+            _abuseProtectionService.LogAccountLockout(user.Email, remoteIp, user.LockoutEndAt.Value);
+        }
+
+        await _context.SaveChangesAsync(HttpContext.RequestAborted);
+        return user.LockoutEndAt.HasValue && user.LockoutEndAt.Value > now;
+    }
+
+    private static void ResetFailedLoginState(User user)
+    {
+        user.FailedLoginAttempts = 0;
+        user.LastFailedLoginAt = null;
+        user.LockoutEndAt = null;
+    }
+
+    private void SetRetryAfterHeader(TimeSpan? retryAfter)
+    {
+        if (!retryAfter.HasValue)
+        {
+            return;
+        }
+
+        var seconds = Math.Max(1, (int)Math.Ceiling(retryAfter.Value.TotalSeconds));
+        Response.Headers.RetryAfter = seconds.ToString();
     }
 
     private static string GenerateVerificationCode()

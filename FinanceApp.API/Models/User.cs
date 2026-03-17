@@ -24,6 +24,9 @@ namespace FinanceApp.API.Models
         public string? PasswordResetToken { get; set; }
         public DateTime? PasswordResetExpiresAt { get; set; }
         public DateTime? PasswordResetRequestedAt { get; set; }
+        public int FailedLoginAttempts { get; set; } = 0;
+        public DateTime? LastFailedLoginAt { get; set; }
+        public DateTime? LockoutEndAt { get; set; }
 
     }
 }

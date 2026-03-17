@@ -1,4 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
@@ -11,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
+const string JwtSubjectClaim = "sub";
 
 var dotEnvPath = Path.Combine(builder.Environment.ContentRootPath, ".env");
 if (File.Exists(dotEnvPath))
@@ -53,6 +53,7 @@ builder.Services.AddDbContext<FinanceDbContext>(options =>
 builder.Services.AddScoped<PasswordService>();
 builder.Services.AddScoped<EmailService>();
 builder.Services.AddScoped<JwtService>();
+builder.Services.AddSingleton<AbuseProtectionService>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 .AddJwtBearer(options =>
 {
@@ -92,7 +93,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         OnTokenValidated = async ctx =>
         {
             var db = ctx.HttpContext.RequestServices.GetRequiredService<FinanceDbContext>();
-            var sub = ctx.Principal?.FindFirstValue(JwtRegisteredClaimNames.Sub)
+            var sub = ctx.Principal?.FindFirstValue(JwtSubjectClaim)
                 ?? ctx.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
             var tvClaim = ctx.Principal?.FindFirstValue("tv");
 
@@ -119,18 +120,104 @@ builder.Services.AddRateLimiter(RateLimiterOptions =>
     RateLimiterOptions.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     RateLimiterOptions.OnRejected = async (context, cancellationToken) =>
     {
+        var abuseProtection = context.HttpContext.RequestServices.GetRequiredService<AbuseProtectionService>();
+
+        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+        {
+            context.HttpContext.Response.Headers.RetryAfter =
+                Math.Ceiling(retryAfter.TotalSeconds).ToString();
+        }
+
+        abuseProtection.LogMiddlewareRejection(
+            context.HttpContext,
+            context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfterValue) ? retryAfterValue : null);
+
         context.HttpContext.Response.ContentType = "application/json";
         await context.HttpContext.Response.WriteAsync(
             "{\"success\":false,\"message\":\"Terlalu banyak request. Coba lagi sebentar.\"}",
             cancellationToken);
     };
 
-    RateLimiterOptions.AddFixedWindowLimiter("fixed", options =>
+    RateLimiterOptions.AddPolicy("auth-anon", httpContext =>
     {
-        options.Window = TimeSpan.FromSeconds(10);
-        options.PermitLimit = 3;
-        options.QueueLimit = 0;
-        options.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        var partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        return RateLimitPartition.GetSlidingWindowLimiter(partitionKey, _ => new SlidingWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(1),
+            PermitLimit = 20,
+            SegmentsPerWindow = 4,
+            QueueLimit = 0,
+            AutoReplenishment = true
+        });
+    });
+
+    RateLimiterOptions.AddPolicy("auth-user", httpContext =>
+    {
+        var partitionKey =
+            httpContext.User.FindFirstValue(JwtSubjectClaim)
+            ?? httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? httpContext.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown";
+
+        return RateLimitPartition.GetSlidingWindowLimiter(partitionKey, _ => new SlidingWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(1),
+            PermitLimit = 60,
+            SegmentsPerWindow = 6,
+            QueueLimit = 0,
+            AutoReplenishment = true
+        });
+    });
+
+    RateLimiterOptions.AddPolicy("auth-refresh", httpContext =>
+    {
+        var partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        return RateLimitPartition.GetTokenBucketLimiter(partitionKey, _ => new TokenBucketRateLimiterOptions
+        {
+            TokenLimit = 12,
+            TokensPerPeriod = 12,
+            ReplenishmentPeriod = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        });
+    });
+
+    RateLimiterOptions.AddPolicy("wallet-read", httpContext =>
+    {
+        var partitionKey =
+            httpContext.User.FindFirstValue(JwtSubjectClaim)
+            ?? httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? httpContext.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown";
+
+        return RateLimitPartition.GetSlidingWindowLimiter(partitionKey, _ => new SlidingWindowRateLimiterOptions
+        {
+            PermitLimit = 120,
+            Window = TimeSpan.FromMinutes(1),
+            SegmentsPerWindow = 6,
+            QueueLimit = 0,
+            AutoReplenishment = true
+        });
+    });
+
+    RateLimiterOptions.AddPolicy("wallet-write", httpContext =>
+    {
+        var partitionKey =
+            httpContext.User.FindFirstValue(JwtSubjectClaim)
+            ?? httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? httpContext.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown";
+
+        return RateLimitPartition.GetTokenBucketLimiter(partitionKey, _ => new TokenBucketRateLimiterOptions
+        {
+            TokenLimit = 20,
+            TokensPerPeriod = 20,
+            ReplenishmentPeriod = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        });
     });
 });
 
