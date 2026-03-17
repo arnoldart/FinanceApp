@@ -55,7 +55,7 @@ public class AuthController : ControllerBase
     {
         var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub)
             ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-        
+
         if (!Guid.TryParse(sub, out var userId))
         {
             return Unauthorized(new { message = "Token tidak valid." });
@@ -84,7 +84,7 @@ public class AuthController : ControllerBase
     {
         var user = _context.Users.FirstOrDefault(x => x.Email == dto.Email);
 
-        if(user == null)
+        if (user == null)
         {
             _logger.LogWarning(
                 "auth.login.failed user_not_found email={Email} ip={Ip} ua={UserAgent}",
@@ -97,7 +97,7 @@ public class AuthController : ControllerBase
 
         var isValid = _passwordService.VerifyPassword(user.PasswordHash, dto.Password);
 
-        if(!isValid)
+        if (!isValid)
         {
             _logger.LogWarning(
                 "auth.login.failed invalid_password userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
@@ -308,15 +308,15 @@ public class AuthController : ControllerBase
     {
         var user = _context.Users.FirstOrDefault(u => u.Email == dto.Email);
 
-        if(user is null)
+        if (user is null)
         {
             _logger.LogWarning(
-                "auth.verify_email.failed user_not_found email={Email} ip={Ip} ua={UserAgent}",
+                "auth.forgot_password.requested_for_unknown_email email={Email} ip={Ip} ua={UserAgent}",
                 dto.Email,
                 GetRemoteIp(),
                 GetUserAgent());
 
-            return Error(StatusCodes.Status404NotFound, "User tidak ditemukan.");
+            return Success("Jika email terdaftar, link reset password akan dikirim.");
         }
 
         var rawToken = Guid.NewGuid().ToString("N");
@@ -335,20 +335,42 @@ public class AuthController : ControllerBase
 
         var subject = "Reset Password FinanceApp";
         var body = $@"
-    <div style='font-family:Arial,sans-serif;line-height:1.5;color:#111'>
-    <h2>Reset Password</h2>
-    <p>Halo {WebUtility.HtmlEncode(user.Name)},</p>
-    <p>Klik tombol berikut untuk reset password kamu:</p>
-    <p>
-        <a href='{WebUtility.HtmlEncode(resetPageUrl)}'
-        style='display:inline-block;padding:10px 16px;background:#0b5fff;color:#fff;text-decoration:none;border-radius:6px'>
-        Reset Password
-        </a>
-    </p>
-    <p>Link ini berlaku 30 menit.</p>
-    </div>";
+<div style='font-family:Arial,sans-serif;line-height:1.5;color:#111'>
+  <h2>Reset Password</h2>
+  <p>Halo {WebUtility.HtmlEncode(user.Name)},</p>
+  <p>Klik tombol berikut untuk reset password kamu:</p>
+  <p>
+    <a href='{WebUtility.HtmlEncode(resetPageUrl)}'
+       style='display:inline-block;padding:10px 16px;background:#0b5fff;color:#fff;text-decoration:none;border-radius:6px'>
+       Reset Password
+    </a>
+  </p>
+  <p>Link ini berlaku 30 menit.</p>
+</div>";
 
-        await _emailService.SendEmailAsync(user.Email, subject, body, isHtml: true);
+        try
+        {
+            await _emailService.SendEmailAsync(user.Email, subject, body, isHtml: true);
+
+            _logger.LogInformation(
+                "auth.forgot_password.email_sent userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
+                user.Id,
+                user.Email,
+                GetRemoteIp(),
+                GetUserAgent());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "auth.forgot_password.email_send_failed userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
+                user.Id,
+                user.Email,
+                GetRemoteIp(),
+                GetUserAgent());
+
+            return Error(StatusCodes.Status500InternalServerError, "Gagal mengirim email reset password.");
+        }
 
         return Success("Jika email terdaftar, link reset password akan dikirim.");
     }
@@ -359,26 +381,42 @@ public class AuthController : ControllerBase
     {
         var user = _context.Users.FirstOrDefault(u => u.Email == dto.Email);
 
-        if(user is null)
+        if (user is null)
         {
             _logger.LogWarning(
-                "auth.verify_email.failed user_not_found email={Email} ip={Ip} ua={UserAgent}",
+                "auth.reset_password.failed user_not_found email={Email} ip={Ip} ua={UserAgent}",
                 dto.Email,
                 GetRemoteIp(),
                 GetUserAgent());
 
-            return Error(StatusCodes.Status404NotFound, "User tidak ditemukan.");
+            return Error(StatusCodes.Status400BadRequest, "Token reset password tidak valid.");
         }
 
-        if(string.IsNullOrWhiteSpace(user.PasswordResetToken) || user.PasswordResetExpiresAt < DateTime.UtcNow)
+        if (string.IsNullOrWhiteSpace(user.PasswordResetToken) ||
+        user.PasswordResetExpiresAt is null ||
+        user.PasswordResetExpiresAt < DateTime.UtcNow)
         {
+            _logger.LogWarning(
+                "auth.reset_password.failed token_expired_or_missing userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
+                user.Id,
+                user.Email,
+                GetRemoteIp(),
+                GetUserAgent());
+
             return Error(StatusCodes.Status400BadRequest, "Token reset password sudah kedaluwarsa.");
         }
 
         var hashedToken = _jwtService.HashToken(dto.Token);
-        
-        if(!string.Equals(hashedToken, user.PasswordResetToken, StringComparison.Ordinal))
+
+        if (!string.Equals(hashedToken, user.PasswordResetToken, StringComparison.Ordinal))
         {
+            _logger.LogWarning(
+                "auth.reset_password.failed invalid_token userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
+                user.Id,
+                user.Email,
+                GetRemoteIp(),
+                GetUserAgent());
+
             return Error(StatusCodes.Status400BadRequest, "Token reset password tidak valid.");
         }
 
@@ -387,10 +425,29 @@ public class AuthController : ControllerBase
         user.PasswordResetExpiresAt = null;
         user.PasswordResetRequestedAt = null;
         user.TokenVersion += 1;
+        user.UpdatedAt = DateTime.UtcNow;
+
+        // Revoke semua refresh token lama supaya semua sesi benar-benar putus
+        var activeRefreshTokens = _context.RefreshTokens
+            .Where(t => t.UserId == user.Id && !t.Revoked)
+            .ToList();
+
+        foreach (var refreshToken in activeRefreshTokens)
+        {
+            refreshToken.Revoked = true;
+        }
 
         _context.SaveChanges();
 
-        Response.Cookies.Delete("refreshToken");
+        Response.Cookies.Delete(RefreshTokenCookieName);
+
+        _logger.LogInformation(
+            "auth.reset_password.success userId={UserId} email={Email} revokedRefreshTokens={RefreshTokenCount} ip={Ip} ua={UserAgent}",
+            user.Id,
+            user.Email,
+            activeRefreshTokens.Count,
+            GetRemoteIp(),
+            GetUserAgent());
 
         return Success("Password berhasil direset. Silakan login kembali.");
     }
@@ -466,7 +523,7 @@ public class AuthController : ControllerBase
 
         _context.RefreshTokens.Add(refreshEntity);
         _context.SaveChanges();
-    
+
         var user = _context.Users.Find(token.UserId);
         if (user is null)
         {
@@ -515,7 +572,7 @@ public class AuthController : ControllerBase
         var refreshTokenHash = _jwtService.HashToken(refreshToken);
         var token = _context.RefreshTokens.FirstOrDefault(t => t.Token == refreshTokenHash);
 
-        if(token != null)
+        if (token != null)
         {
             token.Revoked = true;
 
