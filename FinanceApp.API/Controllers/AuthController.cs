@@ -48,14 +48,6 @@ public class AuthController : ControllerBase
     }
 
     [Authorize]
-    [HttpGet]
-    [EnableRateLimiting("auth-user")]
-    public IActionResult GetUsers()
-    {
-        return Ok(_context.Users.ToList());
-    }
-
-    [Authorize]
     [HttpGet("me")]
     [EnableRateLimiting("auth-user")]
     public IActionResult Me()
