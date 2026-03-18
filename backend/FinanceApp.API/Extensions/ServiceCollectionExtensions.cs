@@ -1,5 +1,11 @@
 namespace FinanceApp.API.Extensions;
 
+public static class CorsPolicies
+{
+    public const string Frontend = "FrontendPolicy";
+    public const string Development = "DevPolicy";
+}
+
 public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddAppLogging(this IServiceCollection services, ILoggingBuilder logging)
@@ -18,7 +24,7 @@ public static class ServiceCollectionExtensions
 
         services.AddCors(options =>
         {
-            options.AddPolicy("FrontendPolicy", policy =>
+            options.AddPolicy(CorsPolicies.Frontend, policy =>
             {
                 policy.WithOrigins(frontendOrigins)
                     .AllowAnyHeader()
@@ -26,7 +32,7 @@ public static class ServiceCollectionExtensions
                     .AllowCredentials();
             });
 
-            options.AddPolicy("DevPolicy", policy =>
+            options.AddPolicy(CorsPolicies.Development, policy =>
             {
                 policy.WithOrigins(devOrigins)
                     .AllowAnyHeader()
