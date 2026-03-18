@@ -3,6 +3,7 @@ using System.Text;
 using System.Threading.RateLimiting;
 using DotNetEnv;
 using FinanceApp.API.Data;
+using FinanceApp.API.Extensions;
 using FinanceApp.API.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
@@ -12,38 +13,17 @@ using Microsoft.IdentityModel.Tokens;
 var builder = WebApplication.CreateBuilder(args);
 const string JwtSubjectClaim = "sub";
 
-var dotEnvPath = Path.Combine(builder.Environment.ContentRootPath, ".env");
-if (File.Exists(dotEnvPath))
-{
-    Env.Load(dotEnvPath);
-    builder.Configuration.AddEnvironmentVariables();
-}
+// var dotEnvPath = Path.Combine(builder.Environment.ContentRootPath, ".env");
+// if (File.Exists(dotEnvPath))
+// {
+//     Env.Load(dotEnvPath);
+//     builder.Configuration.AddEnvironmentVariables();
+// }
 
-builder.Logging.ClearProviders();
-builder.Logging.AddConsole();
-builder.Logging.AddDebug();
+builder.AddEnvronmentConfiguration();
 
-var frontendOrigins = builder.Configuration.GetSection("Cors:FrontendOrigins").Get<string[]>() ?? [];
-var devOrigins = builder.Configuration.GetSection("Cors:DevOrigins").Get<string[]>() ?? [];
-
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("FrontendPolicy", policy =>
-    {
-        policy.WithOrigins(frontendOrigins)
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials();
-    });
-
-    options.AddPolicy("DevPolicy", policy =>
-    {
-        policy.WithOrigins(devOrigins)
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials();
-    });
-});
+builder.Services.AddAppLogging(builder.Logging);
+builder.Services.AddAppCors(builder.Configuration);
 
 var defaultConnection = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection is missing.");
