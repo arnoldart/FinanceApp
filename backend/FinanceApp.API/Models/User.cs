@@ -28,5 +28,6 @@ namespace FinanceApp.API.Models
         public DateTime? LastFailedLoginAt { get; set; }
         public DateTime? LockoutEndAt { get; set; }
 
+        public ICollection<Transaction> Transactions { get; set; } = new List<Transaction>();
     }
 }

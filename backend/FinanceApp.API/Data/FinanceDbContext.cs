@@ -16,7 +16,7 @@ public class FinanceDbContext : DbContext
 
     public DbSet<Transaction> Transactions { get; set; }
 
-    public DbSet<RefreshToken> RefreshTokens {get; set;}
+    public DbSet<RefreshToken> RefreshTokens { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -33,6 +33,18 @@ public class FinanceDbContext : DbContext
         modelBuilder.Entity<RefreshToken>()
             .HasIndex(r => r.Token)
             .IsUnique();
+
+        modelBuilder.Entity<Transaction>()
+            .HasOne(t => t.User)
+            .WithMany(u => u.Transactions)
+            .HasForeignKey(t => t.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Transaction>()
+            .HasOne(t => t.Wallet)
+            .WithMany(w => w.Transactions)
+            .HasForeignKey(t => t.WalletId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 
     public override int SaveChanges()
