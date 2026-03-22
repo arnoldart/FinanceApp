@@ -15,7 +15,7 @@ const handleLogin = async () => {
     loading.value = true
     error.value = ''
     await auth.login({email: email.value, password: password.value})
-    await navigateTo('/dashboard')
+    await navigateTo('/logged/dashboard')
     loading.value = false
 
   }catch(e) {
