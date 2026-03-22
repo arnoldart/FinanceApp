@@ -5,13 +5,17 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: true },
   css: ['~/assets/css/tailwind.css'],
-  modules: ['shadcn-nuxt'],
+  modules: ['@pinia/nuxt','shadcn-nuxt'],
+  runtimeConfig: {
+    public: {
+      apiBase: process.env.NUXT_PUBLIC_API_BASE || ''
+    }
+  },
   vite: {
     plugins: [
       tailwindcss(),
     ],
   },
-
   shadcn: {
     /**
      * Prefix for all the imported component.

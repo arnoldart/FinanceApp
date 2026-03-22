@@ -16,6 +16,7 @@ namespace FinanceApp.API.Controllers;
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {
+    private const string AccessTokenCookieName = "accessToken";
     private const string RefreshTokenCookieName = "refreshToken";
     private const string JwtSubjectClaim = "sub";
     private readonly FinanceDbContext _context;
@@ -172,6 +173,7 @@ public class AuthController : ControllerBase
         _context.SaveChanges();
 
         SetRefreshTokenCookie(refreshToken, token.ExpiresAt);
+        SetAccessTokenCookie(accessToken);
 
         _logger.LogInformation(
             "auth.login.success userId={UserId} email={Email} ip={Ip} ua={UserAgent}",
@@ -180,10 +182,7 @@ public class AuthController : ControllerBase
             remoteIp,
             GetUserAgent());
 
-        return Success("Login berhasil.", new
-        {
-            accessToken
-        });
+        return Success("Login berhasil.");
     }
 
     [HttpPost("Register")]
@@ -481,7 +480,7 @@ public class AuthController : ControllerBase
 
         _context.SaveChanges();
 
-        Response.Cookies.Delete(RefreshTokenCookieName);
+        DeleteAuthCookies();
 
         _logger.LogInformation(
             "auth.reset_password.success userId={UserId} email={Email} revokedRefreshTokens={RefreshTokenCount} ip={Ip} ua={UserAgent}",
@@ -581,6 +580,7 @@ public class AuthController : ControllerBase
         var accessToken = _jwtService.GenerateToken(user.Id, user.Email, user.TokenVersion);
 
         SetRefreshTokenCookie(newRefresh, refreshEntity.ExpiresAt);
+        SetAccessTokenCookie(accessToken);
 
         _logger.LogInformation(
             "auth.refresh.success userId={UserId} ip={Ip} ua={UserAgent}",
@@ -588,10 +588,7 @@ public class AuthController : ControllerBase
             GetRemoteIp(),
             GetUserAgent());
 
-        return Success("Token berhasil diperbarui.", new
-        {
-            accessToken
-        });
+        return Success("Token berhasil diperbarui.");
     }
 
     [HttpPost("logout")]
@@ -601,7 +598,7 @@ public class AuthController : ControllerBase
         var refreshToken = Request.Cookies[RefreshTokenCookieName];
         if (string.IsNullOrWhiteSpace(refreshToken))
         {
-            Response.Cookies.Delete(RefreshTokenCookieName);
+            DeleteAuthCookies();
 
             _logger.LogInformation(
                 "auth.logout.success no_token_cookie ip={Ip} ua={UserAgent}",
@@ -640,22 +637,40 @@ public class AuthController : ControllerBase
                 GetUserAgent());
         }
 
-        Response.Cookies.Delete(RefreshTokenCookieName);
+        DeleteAuthCookies();
 
         return Success("Logout berhasil.");
     }
 
     private void SetRefreshTokenCookie(string refreshToken, DateTime expiresAt)
     {
+        Response.Cookies.Append(RefreshTokenCookieName, refreshToken, BuildCookieOptions(expiresAt));
+    }
+
+    private void SetAccessTokenCookie(string accessToken)
+    {
+        var jwtExpMinutes = int.TryParse(_config["Jwt:ExpireMinutes"], out var minutes) ? minutes : 60;
+        var expiresAt = DateTime.UtcNow.AddMinutes(jwtExpMinutes);
+        Response.Cookies.Append(AccessTokenCookieName, accessToken, BuildCookieOptions(expiresAt));
+    }
+
+    private CookieOptions BuildCookieOptions(DateTime expiresAt)
+    {
         var cookieOptions = new CookieOptions
         {
             HttpOnly = true,
-            Secure = true,
-            SameSite = SameSiteMode.Strict,
+            Secure = Request.IsHttps,
+            SameSite = Request.IsHttps ? SameSiteMode.None : SameSiteMode.Lax,
             Expires = new DateTimeOffset(expiresAt)
         };
 
-        Response.Cookies.Append(RefreshTokenCookieName, refreshToken, cookieOptions);
+        return cookieOptions;
+    }
+
+    private void DeleteAuthCookies()
+    {
+        Response.Cookies.Delete(AccessTokenCookieName);
+        Response.Cookies.Delete(RefreshTokenCookieName);
     }
 
     private IActionResult Success(string message, object? data = null)
