@@ -45,7 +45,7 @@ export default defineNuxtPlugin(() => {
           const auth = useAuthStore()
           auth.logout()
 
-          navigateTo('/auth/login')
+          navigateTo('/login')
         }
       }
     }

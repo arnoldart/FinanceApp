@@ -15,7 +15,7 @@ const handleLogin = async () => {
     loading.value = true
     error.value = ''
     await auth.login({email: email.value, password: password.value})
-    await navigateTo('/logged/dashboard')
+    await navigateTo('/dashboard')
     loading.value = false
 
   }catch(e) {
@@ -42,7 +42,7 @@ const handleLogin = async () => {
           <div class="flex flex-col space-y-1.5">
             <div class="flex items-center">
               <Label for="password">Password</Label>
-              <NuxtLink to="/auth/forgot-password" class="ml-auto inline-block text-sm underline">
+              <NuxtLink to="/forgot-password" class="ml-auto inline-block text-sm underline">
                 Forgot your password?
               </NuxtLink>
             </div>
@@ -50,7 +50,7 @@ const handleLogin = async () => {
           </div>
           <div class="flex flex-col justify-center items-center">
             Don't have account ?
-            <NuxtLink to="/auth/register" class="text-sm underline">Sign Up</NuxtLink>
+            <NuxtLink to="/register" class="text-sm underline">Sign Up</NuxtLink>
           </div>
         </div>
       </form>

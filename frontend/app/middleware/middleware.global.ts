@@ -11,10 +11,10 @@ export default defineNuxtRouteMiddleware(async (to) => {
     const isGuestRoute = to.path.startsWith('/auth')
 
     if (isProtectedRoute && !auth.isLoggedIn) {
-        return navigateTo('/auth/login')
+        return navigateTo('/login')
     }
 
     if (isGuestRoute && auth.isLoggedIn) {
-        return navigateTo('/logged/dashboard')
+        return navigateTo('/dashboard')
     }
 })

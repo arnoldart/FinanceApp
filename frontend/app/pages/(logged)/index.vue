@@ -1,3 +1,3 @@
 <script setup lang="ts">
-navigateTo("/logged/dashboard")
+navigateTo("/dashboard")
 </script>

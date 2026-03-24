@@ -34,7 +34,7 @@ definePageMeta({
           </div>
           <div class="flex flex-col justify-center items-center">
             Already account ?
-            <NuxtLink to="/auth/login" class="text-sm underline">Sign In</NuxtLink>
+            <NuxtLink to="/login" class="text-sm underline">Sign In</NuxtLink>
           </div>
         </div>
       </form>
