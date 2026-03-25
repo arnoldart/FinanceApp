@@ -74,7 +74,7 @@ public class TransactionController : ControllerBase
         }
         );
     }
-    
+
     // Get All Transaction by User
     [HttpGet]
     [Authorize]
@@ -88,11 +88,12 @@ public class TransactionController : ControllerBase
         }
 
         var transaction = await _context.Transactions
-        .Where(w => w.UserId == userId)
-        .Select(w => new Transaction
+        .Where(w => w.UserId == userId && w.DeletedAt == null)
+        .Select(w => new TransactionResponseDto
         {
-            Id= w.Id,
-            WalletId = w.WalletId,
+            Id = w.Id,
+            // WalletId = w.WalletId,
+            WalletName = w.Wallet.Name,
             Amount = w.Amount,
             Type = w.Type,
             Note = w.Note,
@@ -104,7 +105,131 @@ public class TransactionController : ControllerBase
     }
 
     // Get Transaction By Id
+    [HttpGet("{id:guid}")]
+    [Authorize]
+    public async Task<IActionResult> GetTransactionById(Guid id, CancellationToken cancellationToken)
+    {
+        var sub = User.FindFirst("sub")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value; ;
+
+        if (!Guid.TryParse(sub, out var userId))
+        {
+            return Unauthorized(new { message = "Token tidak valid." });
+        }
+
+        var transaction = await _context.Transactions
+        .Where(w => w.Id == id && w.UserId == userId && w.DeletedAt == null)
+        .Select(w => new TransactionResponseDto
+        {
+            Id = w.Id,
+            // WalletId = w.WalletId,
+            WalletName = w.Wallet.Name,
+            Amount = w.Amount,
+            Type = w.Type,
+            Note = w.Note,
+            CreatedAt = w.CreatedAt,
+            UpdatedAt = w.UpdatedAt
+        })
+        .FirstOrDefaultAsync(cancellationToken);
+
+        return Ok(transaction);
+    }
+
     // Patch Transaction By Id
+    [HttpPatch("{id:guid}")]
+    [Authorize]
+    public async Task<IActionResult> UpdateTransaction([FromBody] UpdateTransactionDto dto, Guid id, CancellationToken cancellationToken)
+    {
+        var sub = User.FindFirst("sub")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value; ;
+
+        if (!Guid.TryParse(sub, out var userId))
+        {
+            return Unauthorized(new { message = "Token tidak valid." });
+        }
+
+        var transaction = await _context.Transactions
+            .Include(t => t.Wallet)
+            .FirstOrDefaultAsync(w => w.Id == id && w.UserId == userId && w.DeletedAt == null, cancellationToken);
+
+        if (transaction is null)
+        {
+            return NotFound(new { message = "Transaksi tidak ditemukan." });
+        }
+
+        if (dto.WalletId.HasValue && dto.WalletId.Value != transaction.WalletId)
+        {
+            var wallet = await _context.Wallets
+                .FirstOrDefaultAsync(w => w.Id == dto.WalletId.Value && w.UserId == userId, cancellationToken);
+
+            if (wallet is null)
+            {
+                return NotFound(new { message = "Wallet tidak ditemukan." });
+            }
+
+            transaction.WalletId = wallet.Id;
+            transaction.Wallet = wallet;
+        }
+
+        if (dto.Amount.HasValue)
+        {
+            if (dto.Amount.Value <= 0)
+            {
+                return BadRequest(new { message = "Amount harus lebih dari 0." });
+            }
+
+            transaction.Amount = dto.Amount.Value;
+        }
+
+        if (dto.Type.HasValue)
+        {
+            transaction.Type = dto.Type.Value;
+        }
+
+        if (dto.Note is not null)
+        {
+            transaction.Note = dto.Note;
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        var response = new TransactionResponseDto
+        {
+            Id = transaction.Id,
+            WalletName = transaction.Wallet.Name,
+            Amount = transaction.Amount,
+            Type = transaction.Type,
+            Note = transaction.Note,
+            CreatedAt = transaction.CreatedAt,
+            UpdatedAt = transaction.UpdatedAt
+        };
+
+        return Ok(response);
+    }
+
     // Delete Transaction By Id
+    [HttpDelete("{id:guid}")]
+    [Authorize]
+    public async Task<IActionResult> DeleteTransaction(Guid id, CancellationToken cancellationToken)
+    {
+        var sub = User.FindFirst("sub")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value; ;
+
+        if (!Guid.TryParse(sub, out var userId))
+        {
+            return Unauthorized(new { message = "Token tidak valid." });
+        }
+
+        var transaction = await _context.Transactions
+        .FirstOrDefaultAsync(w => w.Id == id && w.UserId == userId, cancellationToken);
+
+        if (transaction is null)
+        {
+            return NotFound(new { message = "Transaksi tidak ditemukan." });
+        }
+
+        transaction.DeletedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return NoContent();
+    }
 
 }
