@@ -115,30 +115,52 @@ for (let i = 0; i < 10; i++) {
 
   <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
     <Card>
-      <CardHeader class="flex justify-between">
-        <p class="font-semibold">Transactions</p>
-        <NuxtLink to="/transaction">
-          <p class="font-semibold">See All</p>
+      <CardHeader class="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle class="text-lg">Transactions</CardTitle>
+          <CardDescription class="mt-1">
+            Aktivitas transaksi terbaru
+          </CardDescription>
+        </div>
+
+        <NuxtLink
+          to="/transaction"
+          class="text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
+        >
+          See All
         </NuxtLink>
       </CardHeader>
-      <CardContent>
-        <div class="flex justify-between">
-          <p>Name Transaksi</p>
-          <p>Tipe Transaksi</p>
-          <p>Jumlah</p>
+
+      <CardContent class="space-y-3">
+        <div class="hidden grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)] border-b border-border/60 pb-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground md:grid">
+          <p>Nama Transaksi</p>
+          <p>Tipe</p>
+          <p class="text-right">Jumlah</p>
         </div>
-        <div v-for="transaction in listTransaction">
-          <div class="flex justify-between my-3">
-            <p>
-              {{ transaction.name }}
-            </p>
-            <p>
+
+        <div
+          v-for="(transaction, index) in listTransaction"
+          :key="`${transaction.name}-${index}`"
+          class="grid gap-2 rounded-xl border border-border/50 px-4 py-3 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)] md:items-center"
+        >
+          <p class="truncate text-sm font-medium text-foreground">
+            {{ transaction.name }}
+          </p>
+
+          <div>
+            <span
+              class="inline-flex rounded-full px-2.5 py-1 text-xs font-medium capitalize"
+              :class="transaction.transaction_type === 'pengeluaran'
+                ? 'bg-rose-500/12 text-rose-700'
+                : 'bg-emerald-500/12 text-emerald-700'"
+            >
               {{ transaction.transaction_type }}
-            </p>
-            <p>
-              Rp {{ MoneyConverter(transaction.amount) }}
-            </p>
+            </span>
           </div>
+
+          <p class="text-sm font-semibold text-foreground md:text-right">
+            Rp {{ MoneyConverter(transaction.amount) }}
+          </p>
         </div>
       </CardContent>
     </Card>
