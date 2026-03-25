@@ -42,7 +42,7 @@ const sidebarMenu = [
             <SidebarMenuButton size="lg">
               <div
                 class="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                <GalleryVerticalEnd class="size-4" />
+                <svg xmlns="http://www.w3.org/2000/svg" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2h10"/><path d="M5 6h14"/><rect x="3" y="10" width="18" height="12" rx="2"/></svg>
               </div>
               <div class="grid flex-1 text-left text-sm leading-tight">
                 <span class="truncate font-semibold">Acme Inc</span>

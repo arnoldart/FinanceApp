@@ -1,4 +1,5 @@
 bin/
+bin-temp*/
 obj/
 .vs/
 .vscode/
