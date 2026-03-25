@@ -55,6 +55,8 @@ public class TransactionController : ControllerBase
             Note = dto.Note
         };
 
+        ApplyTransactionToWalletBalance(wallet, dto.Type, dto.Amount);
+
         _context.Transactions.Add(transaction);
         await _context.SaveChangesAsync(cancellationToken);
 
@@ -65,6 +67,7 @@ public class TransactionController : ControllerBase
             {
                 transaction.Id,
                 transaction.WalletId,
+                WalletName = wallet.Name,
                 transaction.Amount,
                 transaction.Type,
                 transaction.Note,
@@ -92,7 +95,7 @@ public class TransactionController : ControllerBase
         .Select(w => new TransactionResponseDto
         {
             Id = w.Id,
-            // WalletId = w.WalletId,
+            WalletId = w.WalletId,
             WalletName = w.Wallet.Name,
             Amount = w.Amount,
             Type = w.Type,
@@ -121,7 +124,7 @@ public class TransactionController : ControllerBase
         .Select(w => new TransactionResponseDto
         {
             Id = w.Id,
-            // WalletId = w.WalletId,
+            WalletId = w.WalletId,
             WalletName = w.Wallet.Name,
             Amount = w.Amount,
             Type = w.Type,
@@ -155,6 +158,11 @@ public class TransactionController : ControllerBase
             return NotFound(new { message = "Transaksi tidak ditemukan." });
         }
 
+        var originalWallet = transaction.Wallet;
+        var originalType = transaction.Type;
+        var originalAmount = transaction.Amount;
+        var targetWallet = originalWallet;
+
         if (dto.WalletId.HasValue && dto.WalletId.Value != transaction.WalletId)
         {
             var wallet = await _context.Wallets
@@ -165,8 +173,7 @@ public class TransactionController : ControllerBase
                 return NotFound(new { message = "Wallet tidak ditemukan." });
             }
 
-            transaction.WalletId = wallet.Id;
-            transaction.Wallet = wallet;
+            targetWallet = wallet;
         }
 
         if (dto.Amount.HasValue)
@@ -189,11 +196,19 @@ public class TransactionController : ControllerBase
             transaction.Note = dto.Note;
         }
 
+        RevertTransactionFromWalletBalance(originalWallet, originalType, originalAmount);
+
+        transaction.WalletId = targetWallet.Id;
+        transaction.Wallet = targetWallet;
+
+        ApplyTransactionToWalletBalance(targetWallet, transaction.Type, transaction.Amount);
+
         await _context.SaveChangesAsync(cancellationToken);
 
         var response = new TransactionResponseDto
         {
             Id = transaction.Id,
+            // WalletId = transaction.WalletId,
             WalletName = transaction.Wallet.Name,
             Amount = transaction.Amount,
             Type = transaction.Type,
@@ -218,13 +233,22 @@ public class TransactionController : ControllerBase
         }
 
         var transaction = await _context.Transactions
-        .FirstOrDefaultAsync(w => w.Id == id && w.UserId == userId, cancellationToken);
+        .FirstOrDefaultAsync(w => w.Id == id && w.UserId == userId && w.DeletedAt == null, cancellationToken);
 
         if (transaction is null)
         {
             return NotFound(new { message = "Transaksi tidak ditemukan." });
         }
 
+        var wallet = await _context.Wallets
+            .FirstOrDefaultAsync(w => w.Id == transaction.WalletId && w.UserId == userId, cancellationToken);
+
+        if (wallet is null)
+        {
+            return NotFound(new { message = "Wallet tidak ditemukan." });
+        }
+
+        RevertTransactionFromWalletBalance(wallet, transaction.Type, transaction.Amount);
         transaction.DeletedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync(cancellationToken);
@@ -232,4 +256,18 @@ public class TransactionController : ControllerBase
         return NoContent();
     }
 
+    private static void ApplyTransactionToWalletBalance(Wallet wallet, TransactionType type, decimal amount)
+    {
+        wallet.Balance += GetSignedAmount(type, amount);
+    }
+
+    private static void RevertTransactionFromWalletBalance(Wallet wallet, TransactionType type, decimal amount)
+    {
+        wallet.Balance -= GetSignedAmount(type, amount);
+    }
+
+    private static decimal GetSignedAmount(TransactionType type, decimal amount)
+    {
+        return type == TransactionType.Income ? amount : -amount;
+    }
 }
