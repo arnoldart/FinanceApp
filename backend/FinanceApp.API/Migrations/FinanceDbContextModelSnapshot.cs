@@ -79,9 +79,6 @@ namespace FinanceApp.API.Migrations
                     b.Property<string>("Note")
                         .HasColumnType("text");
 
-                    b.Property<DateTime>("TransactionDate")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<int>("Type")
                         .HasColumnType("integer");
 

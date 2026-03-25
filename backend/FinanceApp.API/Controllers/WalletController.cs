@@ -45,10 +45,6 @@ public class WalletController : ControllerBase
         })
         .ToListAsync(cancellationToken);
 
-        Console.WriteLine("===================");
-        Console.WriteLine($"{wallet}");
-        Console.WriteLine("===================");
-
         return Ok(wallet);
     }
 

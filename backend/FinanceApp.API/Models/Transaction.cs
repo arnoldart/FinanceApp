@@ -15,8 +15,6 @@ public class Transaction : BaseEntity
     public TransactionType Type { get; set; }
 
     public string? Note { get; set; }
-
-    public DateTime TransactionDate { get; set; }
 }
 
 public enum TransactionType
