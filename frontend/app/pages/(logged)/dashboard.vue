@@ -95,7 +95,32 @@ const walletSummaries = computed(() => dashboardData.value?.walletSummaries ?? [
     </Card>
 
     <!-- Wallet Cards -->
-    <Skeleton v-if="isLoading" />
+    <Card v-if="isLoading" v-for="n in 3" :key="`wallet-skeleton-${n}`" class="rounded-2xl border-border/60 shadow-sm">
+      <CardHeader class="pb-3">
+        <div class="flex items-start justify-between gap-3">
+          <div class="space-y-2">
+            <Skeleton class="h-3 w-24" />
+            <Skeleton class="h-5 w-32" />
+          </div>
+          <Skeleton class="h-11 w-11 rounded-2xl" />
+        </div>
+      </CardHeader>
+
+      <CardContent class="space-y-4">
+        <div class="space-y-2">
+          <Skeleton class="h-8 w-40" />
+          <Skeleton class="h-4 w-28" />
+        </div>
+
+        <div class="flex items-center justify-between rounded-xl border px-4 py-3">
+          <div class="space-y-2">
+            <Skeleton class="h-3 w-16" />
+            <Skeleton class="h-4 w-24" />
+          </div>
+          <Skeleton class="h-6 w-20 rounded-full" />
+        </div>
+      </CardContent>
+    </Card>
     <Card v-else v-for="(wallet, index) in walletSummaries" :key="wallet.walletId"
       class="group relative overflow-hidden rounded-2xl border-border/60 bg-gradient-to-br from-background via-background to-muted/30 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
       <div class="absolute inset-0 bg-gradient-to-br opacity-100"
@@ -151,7 +176,20 @@ const walletSummaries = computed(() => dashboardData.value?.walletSummaries ?? [
 
 
   <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-    <Skeleton v-if="isLoading" class="h-md w-[342px]" />
+    <div v-if="isLoading" class="rounded-2xl border border-border/60 p-6 space-y-4">
+      <div class="flex items-center justify-between">
+        <div class="space-y-2">
+          <Skeleton class="h-5 w-40" />
+          <Skeleton class="h-4 w-56" />
+        </div>
+        <Skeleton class="h-4 w-16" />
+      </div>
+
+      <Skeleton class="h-4 w-full" />
+      <Skeleton class="h-16 w-full rounded-xl" />
+      <Skeleton class="h-16 w-full rounded-xl" />
+      <Skeleton class="h-16 w-full rounded-xl" />
+    </div>
     <Card v-else>
       <CardHeader class="flex flex-row items-center justify-between">
         <div>
