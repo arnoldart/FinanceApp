@@ -19,31 +19,33 @@ import MoneyConverter from '~/lib/MoneyConverter'
 import type { Transaction } from '~/types/transaction'
 
 definePageMeta({
-  layout: "logged"
+  layout: 'logged',
+  auth: 'required',
 })
 
 const { $api } = useNuxtApp()
 const router = useRouter()
-const transactions = ref<Transaction[]>([])
 const activeFilter = ref<'all' | 'income' | 'expense'>('all')
 
-const res = await $api('/api/transaction', {
-  method: 'GET',
-}) as Transaction[]
+const { data: transactionsData, refresh: refreshTransactions } = await useAsyncData(
+  'transactions-data',
+  () => $api('/api/transaction', { method: 'GET' }) as Promise<Transaction[]>,
+  {
+    lazy: true,
+    dedupe: 'defer',
+    deep: false,
+    default: () => [],
+  }
+)
 
-transactions.value = res
-
-async function fetchTransactions() {
-  const data = await $api('/api/transaction', { method: 'GET' }) as Transaction[]
-  transactions.value = data
-}
+const transactions = computed(() => transactionsData.value ?? [])
 
 async function deleteTransaction(id: string) {
   if (!confirm('Apakah kamu yakin ingin menghapus transaksi ini?')) return
 
   try {
     await $api(`/api/transaction/${id}`, { method: 'DELETE' })
-    await fetchTransactions()
+    await refreshTransactions()
   } catch (e) {
     console.error('Failed to delete transaction', e)
   }
@@ -55,15 +57,23 @@ const filteredTransactions = computed(() => {
   return transactions.value
 })
 
-const totalIncome = computed(() =>
-  transactions.value.filter(t => t.type === 0).reduce((sum, t) => sum + t.amount, 0)
-)
+const transactionSummary = computed(() => {
+  return transactions.value.reduce((summary, transaction) => {
+    summary.totalTransactions += 1
 
-const totalExpense = computed(() =>
-  transactions.value.filter(t => t.type === 1).reduce((sum, t) => sum + t.amount, 0)
-)
+    if (transaction.type === 0) {
+      summary.totalIncome += transaction.amount
+    } else if (transaction.type === 1) {
+      summary.totalExpense += transaction.amount
+    }
 
-const totalTransactions = computed(() => transactions.value.length)
+    return summary
+  }, {
+    totalTransactions: 0,
+    totalIncome: 0,
+    totalExpense: 0,
+  })
+})
 
 function formatDate(dateStr: string) {
   const date = new Date(dateStr)
@@ -125,7 +135,7 @@ function formatTime(dateStr: string) {
         </CardDescription>
       </CardHeader>
       <CardContent class="relative">
-        <p class="text-3xl font-bold tracking-tight text-foreground">{{ totalTransactions }}</p>
+        <p class="text-3xl font-bold tracking-tight text-foreground">{{ transactionSummary.totalTransactions }}</p>
         <p class="mt-1 text-xs text-muted-foreground">Semua transaksi tercatat</p>
       </CardContent>
     </Card>
@@ -139,7 +149,7 @@ function formatTime(dateStr: string) {
         </CardDescription>
       </CardHeader>
       <CardContent class="relative">
-        <p class="text-3xl font-bold tracking-tight text-emerald-600">Rp {{ MoneyConverter(totalIncome) }}</p>
+        <p class="text-3xl font-bold tracking-tight text-emerald-600">Rp {{ MoneyConverter(transactionSummary.totalIncome) }}</p>
         <p class="mt-1 text-xs text-muted-foreground">Akumulasi pemasukan</p>
       </CardContent>
     </Card>
@@ -153,7 +163,7 @@ function formatTime(dateStr: string) {
         </CardDescription>
       </CardHeader>
       <CardContent class="relative">
-        <p class="text-3xl font-bold tracking-tight text-rose-600">Rp {{ MoneyConverter(totalExpense) }}</p>
+        <p class="text-3xl font-bold tracking-tight text-rose-600">Rp {{ MoneyConverter(transactionSummary.totalExpense) }}</p>
         <p class="mt-1 text-xs text-muted-foreground">Akumulasi pengeluaran</p>
       </CardContent>
     </Card>

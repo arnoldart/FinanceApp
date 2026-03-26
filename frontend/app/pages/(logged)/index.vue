@@ -1,3 +1,7 @@
 <script setup lang="ts">
-navigateTo("/dashboard")
+definePageMeta({
+  auth: 'required',
+})
+
+await navigateTo('/dashboard', { replace: true })
 </script>

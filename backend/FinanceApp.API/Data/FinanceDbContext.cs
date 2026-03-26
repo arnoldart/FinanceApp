@@ -34,6 +34,15 @@ public class FinanceDbContext : DbContext
             .HasIndex(r => r.Token)
             .IsUnique();
 
+        modelBuilder.Entity<Wallet>()
+            .HasIndex(w => w.UserId);
+
+        modelBuilder.Entity<Transaction>()
+            .HasIndex(t => new { t.UserId, t.DeletedAt, t.CreatedAt });
+
+        modelBuilder.Entity<Transaction>()
+            .HasIndex(t => new { t.UserId, t.Type, t.DeletedAt, t.CreatedAt });
+
         modelBuilder.Entity<Transaction>()
             .HasOne(t => t.User)
             .WithMany(u => u.Transactions)

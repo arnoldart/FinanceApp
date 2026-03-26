@@ -1,20 +1,22 @@
 export default defineNuxtRouteMiddleware(async (to) => {
-    const auth = useAuthStore()
-    const sessionChecked = useState<boolean>('session-checked', () => false)
+  const auth = useAuthStore()
+  const sessionChecked = useState<boolean>('session-checked', () => false)
+  const authMode = to.meta.auth as 'required' | 'guest' | undefined
 
-    if (!sessionChecked.value) {
-        await auth.fetchSession()
-        sessionChecked.value = true
-    }
+  if (!authMode) {
+    return
+  }
 
-    const isProtectedRoute = to.path.startsWith('/logged')
-    const isGuestRoute = to.path.startsWith('/auth')
+  if (!sessionChecked.value) {
+    await auth.fetchSession()
+    sessionChecked.value = true
+  }
 
-    if (isProtectedRoute && !auth.isLoggedIn) {
-        return navigateTo('/login')
-    }
+  if (authMode === 'required' && !auth.isLoggedIn) {
+    return navigateTo('/login')
+  }
 
-    if (isGuestRoute && auth.isLoggedIn) {
-        return navigateTo('/dashboard')
-    }
+  if (authMode === 'guest' && auth.isLoggedIn) {
+    return navigateTo('/dashboard')
+  }
 })

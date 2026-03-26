@@ -2,7 +2,8 @@
 import TransactionForm from '~/components/transaction/TransactionForm.vue'
 
 definePageMeta({
-    layout: "logged"
+    layout: "logged",
+    auth: 'required',
 })
 </script>
 

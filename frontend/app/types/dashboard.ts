@@ -9,12 +9,9 @@ export interface WalletSummary {
 
 export interface RecentTransaction {
   id: string
-  walletId: string
-  walletName: string
   amount: number
   type: number
   note: string | null
-  createdAt: string
 }
 
 export interface DashboardResponse {

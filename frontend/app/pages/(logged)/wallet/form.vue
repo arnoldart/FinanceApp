@@ -2,7 +2,8 @@
 import WalletForm from '~/components/wallet/WalletForm.vue'
 
 definePageMeta({
-    layout: "logged"
+    layout: "logged",
+    auth: 'required',
 })
 </script>
 

@@ -16,37 +16,34 @@ import {
 } from '@/components/ui/table'
 import Button from '~/components/ui/button/Button.vue'
 import MoneyConverter from '~/lib/MoneyConverter'
-import type { WalletSummary } from '~/types/dashboard' // using dashboard's WalletSummary or the new wallet type
+import type { Wallet } from '~/types/wallet'
 
 definePageMeta({
-  layout: "logged"
+  layout: 'logged',
+  auth: 'required',
 })
 
 const { $api } = useNuxtApp()
 const router = useRouter()
-
-// We can fetch from /api/wallet or use the summary from /api/dashboard. 
-// Assuming a dedicated /api/wallet exists that returns an array of wallets.
-const wallets = ref<WalletSummary[]>([])
-
-async function fetchWallets() {
-  try {
-    const data = await $api('/api/dashboard', { method: 'GET' }) as any
-    wallets.value = data.walletSummaries || []
-  } catch (e) {
-    console.error('Failed to load wallets', e)
+const { data: walletsData, refresh: refreshWallets } = await useAsyncData(
+  'wallets-data',
+  () => $api('/api/wallet', { method: 'GET' }) as Promise<Wallet[]>,
+  {
+    lazy: true,
+    dedupe: 'defer',
+    deep: false,
+    default: () => [],
   }
-}
+)
 
-// Initial fetch
-await fetchWallets()
+const wallets = computed(() => walletsData.value ?? [])
 
 async function deleteWallet(id: string) {
   if (!confirm('Apakah kamu yakin ingin menghapus rekening ini? Semua transaksi terkait mungkin akan terpengaruh.')) return
 
   try {
     await $api(`/api/wallet/${id}`, { method: 'DELETE' })
-    await fetchWallets()
+    await refreshWallets()
   } catch (e) {
     console.error('Failed to delete wallet', e)
   }
@@ -91,14 +88,8 @@ async function deleteWallet(id: string) {
             <TableHead class="pl-6 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">
               Nama Rekening
             </TableHead>
-            <TableHead class="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80 text-center">
-              Total Transaksi
-            </TableHead>
             <TableHead class="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">
-              Pemasukan (Bulan Ini)
-            </TableHead>
-            <TableHead class="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">
-              Pengeluaran (Bulan Ini)
+              Dibuat
             </TableHead>
             <TableHead class="text-right text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">
               Saldo Saat Ini
@@ -110,9 +101,9 @@ async function deleteWallet(id: string) {
         </TableHeader>
 
         <TableBody>
-          <TableRow v-for="wallet in wallets" :key="wallet.walletId"
+          <TableRow v-for="wallet in wallets" :key="wallet.id"
             class="group relative border-border/30 hover:bg-muted/30 transition-colors cursor-pointer"
-            @click="router.push(`/wallet/${wallet.walletId}`)">
+            @click="router.push(`/wallet/${wallet.id}`)">
             
             <!-- Wallet Name -->
             <TableCell class="pl-6">
@@ -122,30 +113,16 @@ async function deleteWallet(id: string) {
                 </div>
                 <div>
                   <p class="text-sm font-medium text-foreground">
-                    {{ wallet.walletName }}
+                    {{ wallet.name }}
                   </p>
                 </div>
               </div>
             </TableCell>
 
-            <!-- Tx Count -->
-            <TableCell class="text-center">
-              <span class="inline-flex items-center rounded-lg border border-border/50 bg-muted/40 px-2.5 py-1 text-xs font-medium text-foreground">
-                {{ wallet.transactionCount }} trx
-              </span>
-            </TableCell>
-
-            <!-- Income -->
+            <!-- Created At -->
             <TableCell>
-              <p class="text-sm font-medium text-emerald-600">
-                + Rp {{ MoneyConverter(wallet.incomeThisMonth) }}
-              </p>
-            </TableCell>
-
-            <!-- Expense -->
-            <TableCell>
-              <p class="text-sm font-medium text-rose-600">
-                - Rp {{ MoneyConverter(wallet.expenseThisMonth) }}
+              <p class="text-sm text-muted-foreground">
+                {{ wallet.createdAt ? new Date(wallet.createdAt).toLocaleDateString('id-ID') : '-' }}
               </p>
             </TableCell>
 
@@ -159,10 +136,10 @@ async function deleteWallet(id: string) {
             <!-- Actions -->
             <TableCell class="pr-6 text-right">
               <div class="flex items-center justify-end gap-2">
-                <Button type="button" variant="ghost" size="icon" class="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted" @click.stop="router.push(`/wallet/${wallet.walletId}`)">
+                <Button type="button" variant="ghost" size="icon" class="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted" @click.stop="router.push(`/wallet/${wallet.id}`)">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                 </Button>
-                <Button type="button" variant="ghost" size="icon" class="h-8 w-8 text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10" @click.stop="deleteWallet(wallet.walletId)">
+                <Button type="button" variant="ghost" size="icon" class="h-8 w-8 text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10" @click.stop="deleteWallet(wallet.id)">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
                 </Button>
               </div>
@@ -171,7 +148,7 @@ async function deleteWallet(id: string) {
 
           <!-- Empty State -->
           <TableRow v-if="wallets.length === 0">
-            <TableCell colspan="6" class="h-32 text-center">
+            <TableCell colspan="4" class="h-32 text-center">
               <div class="flex flex-col items-center gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-muted-foreground/40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
                 <p class="text-sm font-medium text-muted-foreground">Belum ada rekening</p>

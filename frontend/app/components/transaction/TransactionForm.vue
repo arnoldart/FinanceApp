@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import Button from '~/components/ui/button/Button.vue'
 import MoneyConverter from '~/lib/MoneyConverter'
+import type { Wallet } from '~/types/wallet'
 
 const props = defineProps<{
     transactionId?: string
@@ -28,7 +29,7 @@ const form = reactive({
     note: '',
 })
 
-const isLoading = ref(isEditMode.value)
+const isLoading = ref(true)
 const isSubmitting = ref(false)
 const errors = ref<Record<string, string>>({})
 
@@ -37,11 +38,11 @@ const wallets = ref<{ walletId: string; walletName: string }[]>([])
 
 onMounted(async () => {
     try {
-        const res = await $api('/api/dashboard', { method: 'GET' }) as any
-        wallets.value = res.walletSummaries?.map((w: any) => ({
-            walletId: w.walletId,
-            walletName: w.walletName,
-        })) || []
+        const walletsRes = await $api('/api/wallet', { method: 'GET' }) as Wallet[]
+        wallets.value = walletsRes.map((w) => ({
+            walletId: w.id,
+            walletName: w.name,
+        }))
 
         if (!isEditMode.value && wallets.value.length > 0) {
             form.walletId = wallets.value[0].walletId
@@ -50,19 +51,16 @@ onMounted(async () => {
         // If editing, fetch existing transaction
         if (isEditMode.value) {
             const txRes = await $api(`/api/transaction/${props.transactionId}`, { method: 'GET' }) as any
-            const tx = Array.isArray(txRes) ? txRes[0] : txRes // Handle array or object response based on API
+            const tx = Array.isArray(txRes) ? txRes[0] : txRes
 
             if (tx) {
-                form.walletId = tx.walletId || tx.walletName // API returned walletName instead of walletId earlier, need to match if possible, or assume it returns walletId
-                // Note: The previous transactions API response didn't include walletId in the transaction object listed in requirements, only walletName. 
-                // Let's assume the detail API returns walletId or we match it if it only returns walletName.
-                if(tx.walletId) {
+                if (tx.walletId) {
                     form.walletId = tx.walletId
-                } else if(tx.walletName) {
+                } else if (tx.walletName) {
                     const match = wallets.value.find(w => w.walletName === tx.walletName)
-                    if(match) form.walletId = match.walletId
+                    if (match) form.walletId = match.walletId
                 }
-                
+
                 form.type = tx.type
                 form.amount = String(tx.amount)
                 form.note = tx.note || ''
@@ -284,7 +282,7 @@ async function handleSubmit() {
                                     </p>
                                     <p class="text-xs text-muted-foreground">
                                         {{wallets.find(w => w.walletId === form.walletId)?.walletName || '-'}}
-                                        · {{ form.type === 1 ? 'Pengeluaran' : 'Pemasukan' }}
+                                        | {{ form.type === 1 ? 'Pengeluaran' : 'Pemasukan' }}
                                     </p>
                                 </div>
                             </div>
@@ -315,3 +313,4 @@ async function handleSubmit() {
         </Card>
     </div>
 </template>
+

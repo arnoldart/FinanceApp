@@ -7,13 +7,14 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import MoneyConverter from '~/lib/MoneyConverter'
-import type { DashboardResponse } from '~/types/dashboard'
+import type { DashboardResponse } from '~/types/dashboard';
 
 definePageMeta({
-  layout: "logged"
+  layout: 'logged',
+  auth: 'required',
 })
 
-const walletAccents:any = [
+const walletAccents: Array<{ accent: string; glow: string }> = [
   { accent: 'from-sky-500/20 via-cyan-500/10 to-transparent', glow: 'bg-sky-500' },
   { accent: 'from-indigo-500/20 via-blue-500/10 to-transparent', glow: 'bg-indigo-500' },
   { accent: 'from-amber-500/20 via-orange-500/10 to-transparent', glow: 'bg-amber-500' },
@@ -21,16 +22,22 @@ const walletAccents:any = [
 ]
 
 const { $api } = useNuxtApp()
-const res = await $api('/api/dashboard', {
-  method: 'GET',
-}) as DashboardResponse
 
-const totalBalance = res.totalBalance
-const totalIncomeThisMonth = res.totalIncomeThisMonth
-const totalExpenseThisMonth = res.totalExpenseThisMonth
-const recentTransactions = res.recentTransactions
-const walletSummaries = res.walletSummaries
+const { data: dashboardData, pending: isLoading, error } = await useAsyncData(
+  'dashboard-data',
+  () => $api('/api/dashboard', { method: 'GET' }) as Promise<DashboardResponse>,
+  {
+    lazy: true,
+    dedupe: 'defer',
+    deep: false,
+  }
+)
 
+const totalBalance = computed(() => dashboardData.value?.totalBalance ?? 0)
+const totalIncomeThisMonth = computed(() => dashboardData.value?.totalIncomeThisMonth ?? 0)
+const totalExpenseThisMonth = computed(() => dashboardData.value?.totalExpenseThisMonth ?? 0)
+const recentTransactions = computed(() => dashboardData.value?.recentTransactions ?? [])
+const walletSummaries = computed(() => dashboardData.value?.walletSummaries ?? [])
 </script>
 
 <template>
@@ -88,9 +95,11 @@ const walletSummaries = res.walletSummaries
     </Card>
 
     <!-- Wallet Cards -->
-    <Card v-for="(wallet, index) in walletSummaries" :key="wallet.walletId"
+    <Skeleton v-if="isLoading" />
+    <Card v-else v-for="(wallet, index) in walletSummaries" :key="wallet.walletId"
       class="group relative overflow-hidden rounded-2xl border-border/60 bg-gradient-to-br from-background via-background to-muted/30 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
-      <div class="absolute inset-0 bg-gradient-to-br opacity-100" :class="walletAccents[index % walletAccents.length].accent" />
+      <div class="absolute inset-0 bg-gradient-to-br opacity-100"
+        :class="walletAccents[index % walletAccents.length].accent" />
       <div class="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-white/35 blur-3xl" />
 
       <CardHeader class="relative gap-4 pb-3">
@@ -142,7 +151,8 @@ const walletSummaries = res.walletSummaries
 
 
   <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-    <Card>
+    <Skeleton v-if="isLoading" class="h-md w-[342px]" />
+    <Card v-else>
       <CardHeader class="flex flex-row items-center justify-between">
         <div>
           <CardTitle class="text-lg">Transactions</CardTitle>
