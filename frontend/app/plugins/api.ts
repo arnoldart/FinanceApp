@@ -5,6 +5,15 @@ export default defineNuxtPlugin(() => {
   const baseURL = String(config.public.apiBase || '')
   let isRefreshing = false
   const serverHeaders = import.meta.server ? useRequestHeaders(['cookie']) : undefined
+  const isAuthRoute = (request: RequestInfo | URL) => {
+    const value = typeof request === 'string'
+      ? request
+      : request instanceof URL
+        ? request.pathname
+        : request.url
+
+    return value.includes('/api/auth/')
+  }
 
   const api = $fetch.create({
     baseURL,
@@ -19,6 +28,10 @@ export default defineNuxtPlugin(() => {
     },
     async onResponseError({ request, options, response }) {
       if (response.status === 401) {
+        if (isAuthRoute(request)) {
+          throw response
+        }
+
         if (isRefreshing) return
 
         isRefreshing = true

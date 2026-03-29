@@ -1,4 +1,5 @@
 <template>
-    <h1>Layout public</h1>
+  <main class="min-h-screen">
     <NuxtPage />
+  </main>
 </template>
