@@ -204,13 +204,6 @@ const transactions = [
                 class="ml-2 size-5 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
             </NuxtLink>
           </Button>
-          <Button as-child variant="outline" size="lg"
-            class="rounded-full border-slate-200 bg-white px-8 py-6 text-base text-slate-700 shadow-sm hover:bg-slate-50 hover:shadow-md">
-            <NuxtLink to="/login">
-              <Sparkles class="mr-2 size-4 text-amber-500" />
-              Lihat Demo
-            </NuxtLink>
-          </Button>
         </div>
 
         <div class="mx-auto mt-16 grid max-w-2xl grid-cols-3 gap-8 border-t border-slate-200 pt-10">
