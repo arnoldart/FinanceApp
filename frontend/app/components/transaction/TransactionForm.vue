@@ -102,7 +102,7 @@ async function handleSubmit() {
     try {
         if (isEditMode.value) {
             await $api(`/api/transaction/${props.transactionId}`, {
-                method: 'PUT',
+                method: 'PATCH',
                 body: {
                     walletId: form.walletId,
                     type: form.type,
