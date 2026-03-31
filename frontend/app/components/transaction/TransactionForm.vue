@@ -21,7 +21,6 @@ const router = useRouter()
 
 const isEditMode = computed(() => !!props.transactionId)
 
-// Form state
 const form = reactive({
     walletId: '',
     type: 1,
@@ -33,7 +32,6 @@ const isLoading = ref(true)
 const isSubmitting = ref(false)
 const errors = ref<Record<string, string>>({})
 
-// Fetch wallets for dropdown
 const wallets = ref<{ walletId: string; walletName: string }[]>([])
 
 onMounted(async () => {
@@ -48,7 +46,6 @@ onMounted(async () => {
             form.walletId = wallets.value[0].walletId
         }
 
-        // If editing, fetch existing transaction
         if (isEditMode.value) {
             const txRes = await $api(`/api/transaction/${props.transactionId}`, { method: 'GET' }) as any
             const tx = Array.isArray(txRes) ? txRes[0] : txRes
@@ -73,7 +70,6 @@ onMounted(async () => {
     }
 })
 
-// Amount display formatting
 const displayAmount = computed(() => {
     if (!form.amount) return ''
     return MoneyConverter(Number(form.amount))

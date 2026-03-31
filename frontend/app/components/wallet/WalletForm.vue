@@ -20,7 +20,6 @@ const router = useRouter()
 
 const isEditMode = computed(() => !!props.walletId)
 
-// Form state
 const form = reactive({
     name: '',
     balance: '',
@@ -48,7 +47,6 @@ onMounted(async () => {
     }
 })
 
-// Balance display formatting
 const displayBalance = computed(() => {
     if (!form.balance) return ''
     return MoneyConverter(Number(form.balance))
@@ -66,8 +64,6 @@ function validate(): boolean {
     if (!form.name.trim()) errors.value.name = 'Nama rekening tidak boleh kosong'
     if (form.name.length > 50) errors.value.name = 'Nama rekening maksimal 50 karakter'
 
-    // Balance can be 0, but cannot be empty strictly if we require it.
-    // Usually starting balance can be 0.
     if (!form.balance && form.balance !== '0') errors.value.balance = 'Saldo awal harus diisi'
 
     return Object.keys(errors.value).length === 0
