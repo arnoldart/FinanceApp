@@ -26,6 +26,7 @@ public class DashboardController : ControllerBase
     {
         const int recentTransactionLimit = 5;
         const int walletSummaryLimit = 3;
+        const int assetTrendDays = 30;
 
         var sub = User.FindFirst("sub")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
@@ -107,13 +108,60 @@ public class DashboardController : ControllerBase
             })
             .ToListAsync(cancellationToken);
 
+        var assetTrendEndDate = now.Date;
+        var assetTrendStartDate = assetTrendEndDate.AddDays(-(assetTrendDays - 1));
+        var assetTrendNextDate = assetTrendEndDate.AddDays(1);
+
+        var assetTrendTransactions = await _context.Transactions
+            .AsNoTracking()
+            .Where(t =>
+                t.UserId == userId &&
+                t.DeletedAt == null &&
+                t.CreatedAt >= assetTrendStartDate &&
+                t.CreatedAt < assetTrendNextDate)
+            .Select(t => new
+            {
+                Date = t.CreatedAt.Date,
+                t.Amount,
+                t.Type
+            })
+            .ToListAsync(cancellationToken);
+
+        var netChangeByDate = assetTrendTransactions
+            .GroupBy(t => t.Date)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Sum(t => t.Type == TransactionType.Income ? t.Amount : -t.Amount)
+            );
+
+        var netChangeInWindow = netChangeByDate.Values.Sum();
+        var openingBalance = total - netChangeInWindow;
+        var runningBalance = openingBalance;
+        var assetTrend = new List<DashboardAssetTrendPointDto>(assetTrendDays);
+
+        for (var dayIndex = 0; dayIndex < assetTrendDays; dayIndex++)
+        {
+            var date = assetTrendStartDate.AddDays(dayIndex);
+            if (netChangeByDate.TryGetValue(date, out var netChange))
+            {
+                runningBalance += netChange;
+            }
+
+            assetTrend.Add(new DashboardAssetTrendPointDto
+            {
+                Date = date,
+                Balance = runningBalance
+            });
+        }
+
         var response = new DashboardResponseDto
         {
             TotalBalance = total,
             TotalIncomeThisMonth = totalIncomeThisMonth,
             TotalExpenseThisMonth = totalExpenseThisMonth,
             RecentTransactions = recentTransactions,
-            WalletSummaries = walletSummaries
+            WalletSummaries = walletSummaries,
+            AssetTrend = assetTrend
         };
 
         return Ok(response);

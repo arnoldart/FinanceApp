@@ -20,4 +20,10 @@ export interface DashboardResponse {
   totalExpenseThisMonth: number
   recentTransactions: RecentTransaction[]
   walletSummaries: WalletSummary[]
+  assetTrend: AssetTrendPoint[]
+}
+
+export interface AssetTrendPoint {
+  date: string
+  balance: number
 }

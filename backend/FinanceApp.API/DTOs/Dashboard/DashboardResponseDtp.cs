@@ -7,4 +7,5 @@ public class DashboardResponseDto
     public decimal TotalExpenseThisMonth { get; set; }
     public List<DashboardRecentTransactionDto> RecentTransactions { get; set; } = [];
     public List<DashboardWalletSummaryDto> WalletSummaries { get; set; } = [];
+    public List<DashboardAssetTrendPointDto> AssetTrend { get; set; } = [];
 }

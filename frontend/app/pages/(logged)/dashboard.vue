@@ -40,80 +40,35 @@ const totalIncomeThisMonth = computed(() => dashboardData.value?.totalIncomeThis
 const totalExpenseThisMonth = computed(() => dashboardData.value?.totalExpenseThisMonth ?? 0)
 const recentTransactions = computed(() => dashboardData.value?.recentTransactions ?? [])
 const walletSummaries = computed(() => dashboardData.value?.walletSummaries ?? [])
+const assetTrend = computed(() => dashboardData.value?.assetTrend ?? [])
+
 const assetChart = computed(() => {
-  const total = totalBalance.value
-  const income = totalIncomeThisMonth.value
-  const expense = totalExpenseThisMonth.value
-  const walletBalances = walletSummaries.value.map(wallet => wallet.balance)
+  const fallbackDate = new Date().toISOString()
+  const trendPoints = assetTrend.value.length > 0
+    ? assetTrend.value
+    : [{ date: fallbackDate, balance: totalBalance.value }]
 
-  const hasRealData = total > 0 || income > 0 || expense > 0 || walletBalances.length > 0
-  const baseline = hasRealData
-    ? Math.max(total - income + expense, total * 0.78, 1)
-    : 10_500_000
+  const categories = trendPoints.map(point =>
+    new Date(point.date).toLocaleDateString('id-ID', {
+      day: '2-digit',
+      month: 'short',
+      timeZone: 'UTC',
+    })
+  )
+  const series = trendPoints.map(point => Number(point.balance))
+  const minValue = Math.min(...series)
+  const maxValue = Math.max(...series)
+  const chartPadding = Math.max((maxValue - minValue) * 0.1, 1)
+  const highlightedIndex = Math.max(series.length - 1, 0)
 
-  const influences = walletBalances.length > 0
-    ? walletBalances.slice(0, 6).map(balance => balance * 0.08)
-    : [450_000, 920_000, 640_000, 1_100_000, 780_000, 560_000]
-
-  const points = Array.from({ length: 10 }, (_, index) => {
-    const direction = index % 2 === 0 ? 1 : -1
-    const influence = influences[index % influences.length] ?? 500_000
-    const incomeDrift = income * (0.14 + index * 0.018)
-    const expenseDrag = expense * (0.09 + (9 - index) * 0.01)
-    const value = Math.max(
-      baseline + incomeDrift - expenseDrag + influence * direction,
-      1
-    )
-
-    return {
-      label: index === 0 ? 'Nov 12, 2025' : index === 9 ? 'Dec 11, 2025' : '',
-      value: Math.round(value),
-    }
-  })
-
-  if (hasRealData) {
-    points[points.length - 1].value = Math.max(total, 1)
-  }
-
-  const values = points.map(point => point.value)
-  const min = Math.min(...values)
-  const max = Math.max(...values)
-  const range = Math.max(max - min, 1)
-  const width = 760
-  const height = 260
-  const paddingX = 20
-  const paddingTop = 18
-  const paddingBottom = 28
-  const usableHeight = height - paddingTop - paddingBottom
-  const stepX = (width - paddingX * 2) / (points.length - 1)
-
-  const svgPoints = points.map((point, index) => {
-    const x = paddingX + stepX * index
-    const y = paddingTop + (1 - ((point.value - min) / range)) * usableHeight
-
-    return { ...point, x, y }
-  })
-
-  const polyline = svgPoints.map(point => `${point.x},${point.y}`).join(' ')
-  const highlighted = svgPoints[Math.floor(svgPoints.length * 0.42)]
   return {
-    categories: [
-      'Nov 12, 2025',
-      'Nov 15, 2025',
-      'Nov 18, 2025',
-      'Nov 20, 2025',
-      'Nov 23, 2025',
-      'Nov 27, 2025',
-      'Dec 01, 2025',
-      'Dec 05, 2025',
-      'Dec 08, 2025',
-      'Dec 11, 2025',
-    ],
-    series: svgPoints.map(point => point.value),
-    min,
-    max,
-    highlightedIndex: Math.floor(svgPoints.length * 0.42),
-    highlighted,
+    categories,
+    series,
+    min: minValue - chartPadding,
+    max: maxValue + chartPadding,
+    highlightedIndex,
+    highlightedValue: series[highlightedIndex] ?? 0,
+    highlightedDate: categories[highlightedIndex] ?? '',
   }
 })
 
@@ -183,7 +138,7 @@ const assetChartOptions = computed<ApexOptions>(() => ({
     points: [
       {
         x: assetChart.value.categories[assetChart.value.highlightedIndex],
-        y: assetChart.value.highlighted.value,
+        y: assetChart.value.highlightedValue,
         marker: {
           size: 0,
         },
@@ -196,7 +151,7 @@ const assetChartOptions = computed<ApexOptions>(() => ({
             fontWeight: 600,
           },
           offsetY: -8,
-          text: `Rp ${MoneyConverter(assetChart.value.highlighted.value)}\nNov 20, 2025`,
+          text: `Rp ${MoneyConverter(assetChart.value.highlightedValue)}\n${assetChart.value.highlightedDate}`,
         },
       },
     ],
@@ -227,7 +182,9 @@ const assetChartOptions = computed<ApexOptions>(() => ({
         fontSize: '12px',
       },
       formatter: (_value, _timestamp, index) => {
-        if (index === 0 || index === assetChart.value.categories.length - 1) {
+        const totalLabels = assetChart.value.categories.length
+        const centerLabel = Math.floor(totalLabels / 2)
+        if (index === 0 || index === centerLabel || index === totalLabels - 1) {
           return assetChart.value.categories[index] ?? ''
         }
 
@@ -244,7 +201,7 @@ const assetChartOptions = computed<ApexOptions>(() => ({
         colors: '#94a3b8',
         fontSize: '12px',
       },
-      formatter: value => `$${Math.round(value / 1_000_000)}M`,
+      formatter: value => `Rp ${MoneyConverter(Number(value))}`,
     },
   },
   legend: {
@@ -393,12 +350,12 @@ const assetChartOptions = computed<ApexOptions>(() => ({
         <div>
           <CardTitle class="text-lg">Asset Total Statistic</CardTitle>
           <CardDescription class="mt-1">
-            Ringkasan tren aset dari data dashboard saat ini.
+            Perkembangan saldo aset 30 hari terakhir.
           </CardDescription>
         </div>
 
         <div class="rounded-lg border border-border/60 bg-background px-3 py-2 text-sm text-muted-foreground shadow-xs">
-          Monthly
+          30 Hari
         </div>
       </CardHeader>
 
