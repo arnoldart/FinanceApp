@@ -205,24 +205,6 @@ const transactions = [
             </NuxtLink>
           </Button>
         </div>
-
-        <div class="mx-auto mt-16 grid max-w-2xl grid-cols-3 gap-8 border-t border-slate-200 pt-10">
-          <div>
-            <p class="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">10K<span
-                class="text-emerald-600">+</span></p>
-            <p class="mt-1 text-sm text-slate-400">Transaksi Tercatat</p>
-          </div>
-          <div>
-            <p class="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">24<span
-                class="text-cyan-500">/7</span></p>
-            <p class="mt-1 text-sm text-slate-400">Reminder Aktif</p>
-          </div>
-          <div>
-            <p class="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">50<span
-                class="text-violet-500">+</span></p>
-            <p class="mt-1 text-sm text-slate-400">Kategori Budget</p>
-          </div>
-        </div>
       </div>
 
       <div id="preview" class="relative mt-20"

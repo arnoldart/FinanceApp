@@ -30,6 +30,7 @@ import {
   WalletCards,
 } from 'lucide-vue-next'
 
+const { $api } = useNuxtApp()
 const route = useRoute()
 const profileMenuOpen = ref(false)
 const profileMenuRef = ref<HTMLElement | null>(null)
@@ -73,20 +74,16 @@ function openSettings() {
   profileMenuOpen.value = false
 }
 
-function handleLogout() {
+async function handleLogout() {
   profileMenuOpen.value = false
-  // TODO: Sambungkan ke API/logout flow milikmu di sini.
+  await $api('/api/auth/logout', {method: "POST"})
+  await navigateTo("/")
 }
 
 onClickOutside(profileMenuRef, () => {
   profileMenuOpen.value = false
 })
-
-const { $api } = useNuxtApp()
 const profile = await $api('/api/auth/me', { method: "GET" })
-
-console.log(profile.name)
-
 </script>
 
 <template>
