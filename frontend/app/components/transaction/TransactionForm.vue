@@ -107,7 +107,7 @@ async function handleSubmit() {
                 },
             })
         } else {
-            await $api('/api/transaction', {
+            await $api(`/api/transaction/${form.walletId}`, {
                 method: 'POST',
                 body: {
                     walletId: form.walletId,
