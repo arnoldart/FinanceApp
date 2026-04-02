@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { Component } from 'vue'
+import type { Profile } from '~/types/profile'
 import { onClickOutside } from '@vueuse/core'
 import {
   Sidebar,
@@ -10,7 +12,6 @@ import {
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
@@ -35,7 +36,14 @@ const route = useRoute()
 const profileMenuOpen = ref(false)
 const profileMenuRef = ref<HTMLElement | null>(null)
 
-const sidebarMenu = [
+interface SidebarMenuItem {
+  name: string
+  description: string
+  link: string
+  icon: Component
+}
+
+const sidebarMenu: SidebarMenuItem[] = [
   {
     name: 'Dashboard',
     description: 'Ringkasan performa keuangan',
@@ -56,7 +64,7 @@ const sidebarMenu = [
   },
 ]
 
-const activeMenu = computed(() => {
+const activeMenu = computed<SidebarMenuItem>(() => {
   return sidebarMenu.find(item => route.path.startsWith(item.link)) ?? sidebarMenu[0]
 })
 
@@ -76,14 +84,14 @@ function openSettings() {
 
 async function handleLogout() {
   profileMenuOpen.value = false
-  await $api('/api/auth/logout', {method: "POST"})
-  await navigateTo("/")
+  await $api('/api/auth/logout', { method: 'POST' })
+  await navigateTo('/')
 }
 
 onClickOutside(profileMenuRef, () => {
   profileMenuOpen.value = false
 })
-const profile = await $api('/api/auth/me', { method: "GET" })
+const profile = await $api<Profile>('/api/auth/me', { method: 'GET' })
 </script>
 
 <template>
